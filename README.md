@@ -12,15 +12,17 @@
 
 ---
 
-Open 50GB+ datasets **instantly**. Visualize token boundaries. Catch data quality issues before they kill your fine-tuning run.
+Open 50GB+ datasets **instantly**. Supports **JSONL, Parquet, and CSV**. Visualize token boundaries with **Tiktoken cl100k_base**. Catch data quality issues before they kill your fine-tuning run.
 
 ## ✨ Features
 
-### 📁 Instant File Opening
-Memory-mapped I/O means your 100GB dataset opens in **0.1 seconds**. No loading bars. No "file too large" errors.
+### 📁 Multi-Format Support
+- **JSONL**: Memory-mapped I/O - 100GB files open in **0.1 seconds**
+- **Parquet**: Native Apache Arrow support for columnar datasets
+- **CSV**: Auto-converts CSV rows to JSON objects
 
 ### 🔬 Token X-Ray Mode
-Press `Tab` to see exactly how your text tokenizes. Alternating background colors show token boundaries - spot tokenization issues instantly.
+Press `Tab` to see exactly how your text tokenizes. Uses **Tiktoken cl100k_base** (GPT-4 tokenizer) by default. Alternating background colors show token boundaries.
 
 ### 🧠 Reasoning Linter  
 Built for Chain-of-Thought datasets. Automatically detects:
@@ -51,14 +53,19 @@ curl https://example.com/data.jsonl | caret -
 # Install from source
 cargo install --path .
 
-# Open a dataset
-caret your_dataset.jsonl
+# Open any dataset format
+caret data.jsonl           # JSONL (default)
+caret data.parquet          # Parquet (auto-detected)
+caret data.csv              # CSV (auto-detected)
 
 # With linter
-caret your_dataset.jsonl --lint
+caret data.jsonl --lint
 
-# With tokenizer (Token X-Ray mode)
-caret your_dataset.jsonl --tokenizer path/to/tokenizer.json
+# With tokenizer (Token X-Ray mode using Tiktoken cl100k_base)
+caret data.jsonl -t
+
+# Use HuggingFace tokenizer instead
+caret data.jsonl -t --tokenizer-type huggingface
 ```
 
 ## ⌨️ Keyboard Shortcuts
@@ -94,8 +101,13 @@ cargo build --release
 ## 🔧 Usage
 
 ```bash
-# Basic usage
+# Basic usage (auto-detects format from extension)
 caret data.jsonl
+caret data.parquet
+caret data.csv
+
+# Force specific format
+caret data.txt --format jsonl
 
 # Enable linting
 caret data.jsonl --lint
@@ -103,8 +115,20 @@ caret data.jsonl --lint
 # Lint with required keys check
 caret data.jsonl --lint --required-keys "messages,prompt"
 
-# Token visualization (requires tokenizer.json)
-caret data.jsonl --tokenizer ./llama3-tokenizer.json
+# Token visualization (Tiktoken cl100k_base - default)
+caret data.jsonl -t
+
+# Use different Tiktoken encoding
+caret data.jsonl -t --tiktoken-encoding p50k_base
+
+# Use HuggingFace tokenizer (Llama 3.1)
+caret data.jsonl -t --tokenizer-type huggingface
+
+# Use legacy GPT-2 tokenizer
+caret data.jsonl -t --tokenizer-type gpt2
+
+# Custom tokenizer file
+caret data.jsonl --tokenizer-path ./my-tokenizer.json
 
 # Pipeline mode (read from stdin)
 cat data.jsonl | caret -
@@ -125,7 +149,8 @@ Fine-tuning LLMs is brutally unforgiving. A single malformed JSON line or unbala
 | Problem | VS Code | jq | Caret |
 |---------|---------|----|---------| 
 | Open 10GB file | ❌ Crashes | ✅ Slow | ✅ Instant |
-| See token boundaries | ❌ | ❌ | ✅ |
+| Load Parquet | ❌ | ❌ | ✅ Native |
+| See token boundaries | ❌ | ❌ | ✅ Tiktoken |
 | Find broken `<think>` tags | Manual | ❌ | ✅ Auto |
 | Smooth scrolling | ❌ | ❌ | ✅ 60 FPS |
 
@@ -144,9 +169,10 @@ Fine-tuning LLMs is brutally unforgiving. A single malformed JSON line or unbala
 └──────────────────────────────────────────────────────┘
 ```
 
-- **Memory Mapping**: Zero-copy file access via `memmap2`
+- **Memory Mapping**: Zero-copy file access via `memmap2` (JSONL)
+- **Parquet/CSV**: Arrow-native conversion to JSONL in memory
 - **Line Indexing**: O(1) access to any line in the file
-- **Tokenization**: Native Rust bindings to HuggingFace tokenizers
+- **Tokenization**: Tiktoken (cl100k_base) + HuggingFace tokenizers
 - **Rendering**: Immediate-mode TUI with 60 FPS scrolling
 
 ## 🤝 Contributing

@@ -1,7 +1,8 @@
 //! Caret - Memory-mapped dataset handling
 //!
 //! Provides zero-copy access to massive JSONL files using mmap.
-//! Also supports reading from stdin for pipeline workflows.
+//! Also supports Parquet and CSV formats via in-memory conversion.
+//! Plus reading from stdin for pipeline workflows.
 
 use anyhow::{Context, Result};
 use memmap2::Mmap;
@@ -9,11 +10,13 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
+use crate::format::{self, InputFormat};
+
 /// Storage backend for the dataset
 enum DataStorage {
-    /// Memory-mapped file (zero-copy, for large files)
+    /// Memory-mapped file (zero-copy, for large JSONL files)
     Mmap(Mmap),
-    /// In-memory buffer (for stdin or small files)
+    /// In-memory buffer (for stdin, Parquet, CSV, or small files)
     InMemory(Vec<u8>),
 }
 
@@ -44,17 +47,37 @@ pub struct Dataset {
     pub path: String,
     /// File size in bytes
     pub size: u64,
+    /// Original format (for display purposes)
+    pub format: InputFormat,
 }
 
 impl Dataset {
-    /// Open a file and build the line index
+    /// Open a file with automatic format detection
     ///
-    /// This memory-maps the file (instant open) and scans for newlines
-    /// to enable O(1) access to any line.
+    /// Detects format from file extension and loads appropriately:
+    /// - JSONL: Memory-mapped for instant O(1) line access
+    /// - Parquet: Converted to JSONL in memory
+    /// - CSV: Converted to JSONL in memory
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let format = InputFormat::detect(&path);
+        Self::open_with_format(path, format)
+    }
+
+    /// Open a file with explicit format specification
+    pub fn open_with_format<P: AsRef<Path>>(path: P, format: InputFormat) -> Result<Self> {
         let path_ref = path.as_ref();
-        let file = File::open(path_ref)
-            .with_context(|| format!("Failed to open file: {}", path_ref.display()))?;
+
+        match format {
+            InputFormat::Jsonl => Self::open_jsonl(path_ref),
+            InputFormat::Parquet => Self::open_parquet(path_ref),
+            InputFormat::Csv => Self::open_csv(path_ref),
+        }
+    }
+
+    /// Open a JSONL file with memory mapping (zero-copy, instant open)
+    fn open_jsonl(path: &Path) -> Result<Self> {
+        let file = File::open(path)
+            .with_context(|| format!("Failed to open file: {}", path.display()))?;
 
         let metadata = file.metadata()?;
         let size = metadata.len();
@@ -73,8 +96,45 @@ impl Dataset {
         Ok(Self {
             storage: DataStorage::Mmap(mmap),
             line_offsets,
-            path: path_ref.display().to_string(),
+            path: path.display().to_string(),
             size,
+            format: InputFormat::Jsonl,
+        })
+    }
+
+    /// Open a Parquet file (converts to JSONL in memory)
+    fn open_parquet(path: &Path) -> Result<Self> {
+        let lines = format::parquet_to_jsonl(path)?;
+        Self::from_lines(lines, path.display().to_string(), InputFormat::Parquet)
+    }
+
+    /// Open a CSV file (converts to JSONL in memory)
+    fn open_csv(path: &Path) -> Result<Self> {
+        let lines = format::csv_to_jsonl(path)?;
+        Self::from_lines(lines, path.display().to_string(), InputFormat::Csv)
+    }
+
+    /// Create a dataset from a vector of JSONL strings
+    fn from_lines(lines: Vec<String>, path: String, format: InputFormat) -> Result<Self> {
+        // Join lines with newlines
+        let content = lines.join("\n");
+        let buffer = content.into_bytes();
+        let size = buffer.len() as u64;
+
+        // Build line index
+        let mut line_offsets = vec![0];
+        for (i, &byte) in buffer.iter().enumerate() {
+            if byte == b'\n' && i + 1 < buffer.len() {
+                line_offsets.push(i + 1);
+            }
+        }
+
+        Ok(Self {
+            storage: DataStorage::InMemory(buffer),
+            line_offsets,
+            path,
+            size,
+            format,
         })
     }
 
@@ -100,6 +160,7 @@ impl Dataset {
             line_offsets,
             path: "<stdin>".to_string(),
             size,
+            format: InputFormat::Jsonl,
         })
     }
 
@@ -158,6 +219,15 @@ impl Dataset {
             format!("{} B", self.size)
         }
     }
+
+    /// Get format name for display
+    pub fn format_name(&self) -> &'static str {
+        match self.format {
+            InputFormat::Jsonl => "JSONL",
+            InputFormat::Parquet => "Parquet",
+            InputFormat::Csv => "CSV",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_line_access() -> Result<()> {
-        let mut file = NamedTempFile::new()?;
+        let mut file = NamedTempFile::with_suffix(".jsonl")?;
         writeln!(file, r#"{{"prompt": "Hello"}}"#)?;
         writeln!(file, r#"{{"prompt": "World"}}"#)?;
         writeln!(file, r#"{{"prompt": "Test"}}"#)?;
@@ -178,6 +248,22 @@ mod tests {
         assert!(dataset.get_line(0).unwrap().contains("Hello"));
         assert!(dataset.get_line(1).unwrap().contains("World"));
         assert!(dataset.get_line(2).unwrap().contains("Test"));
+        assert_eq!(dataset.format, InputFormat::Jsonl);
+        Ok(())
+    }
+
+    #[test]
+    fn test_csv_loading() -> Result<()> {
+        let mut file = NamedTempFile::with_suffix(".csv")?;
+        writeln!(file, "prompt,response")?;
+        writeln!(file, "Hello,World")?;
+        writeln!(file, "Foo,Bar")?;
+
+        let dataset = Dataset::open(file.path())?;
+        assert_eq!(dataset.line_count(), 2);
+        assert!(dataset.get_line(0).unwrap().contains("Hello"));
+        assert!(dataset.get_line(0).unwrap().contains("World"));
+        assert_eq!(dataset.format, InputFormat::Csv);
         Ok(())
     }
 }

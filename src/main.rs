@@ -1,11 +1,12 @@
 //! Caret - A blazingly fast TUI for inspecting LLM datasets
 //!
-//! Provides instant file opening for massive JSONL files,
+//! Provides instant file opening for massive JSONL, Parquet, and CSV files,
 //! token visualization, and reasoning data validation.
 
 mod app;
 mod data;
 mod fixer;
+mod format;
 mod linter;
 mod tokenizer;
 mod tui;
@@ -22,22 +23,35 @@ use std::time::Duration;
 use app::App;
 use data::Dataset;
 use fixer::{FixResult, Fixer, FixSummary};
+use format::InputFormat;
 use linter::Linter;
-use tokenizer::TokenizerWrapper;
+use tokenizer::{TiktokenEncoding, TokenizerType, TokenizerWrapper};
 use tui::Tui;
 
 /// Caret - Blazingly fast TUI for LLM dataset curation
 #[derive(FromArgs)]
 struct Args {
-    /// path to the JSONL file to inspect
+    /// path to the dataset file (JSONL, Parquet, or CSV)
     #[argh(positional)]
     file: String,
 
-    /// enable Token X-Ray mode with default Llama 3.1 tokenizer
+    /// input format: auto, jsonl, parquet, csv (default: auto-detect)
+    #[argh(option, default = "String::from(\"auto\")")]
+    format: String,
+
+    /// enable Token X-Ray mode
     #[argh(switch, short = 't')]
     tokenizer: bool,
 
-    /// path to custom tokenizer.json (overrides default)
+    /// tokenizer type: tiktoken, huggingface, gpt2 (default: tiktoken)
+    #[argh(option, default = "String::from(\"tiktoken\")")]
+    tokenizer_type: String,
+
+    /// tiktoken encoding: cl100k_base, p50k_base, r50k_base (default: cl100k_base)
+    #[argh(option, default = "String::from(\"cl100k_base\")")]
+    tiktoken_encoding: String,
+
+    /// path to custom tokenizer.json (overrides --tokenizer-type)
     #[argh(option)]
     tokenizer_path: Option<String>,
 
@@ -69,6 +83,16 @@ struct Args {
 fn main() -> Result<()> {
     let args: Args = argh::from_env();
 
+    // Determine input format
+    let input_format = if args.format == "auto" {
+        InputFormat::detect(&args.file)
+    } else {
+        InputFormat::from_str(&args.format).unwrap_or_else(|| {
+            eprintln!("⚠ Unknown format '{}', using auto-detect", args.format);
+            InputFormat::detect(&args.file)
+        })
+    };
+
     // Load the dataset - support stdin with "-"
     let dataset = if args.file == "-" {
         eprintln!("📂 Reading from stdin...");
@@ -80,13 +104,18 @@ fn main() -> Result<()> {
         );
         dataset
     } else {
-        eprintln!("📂 Opening {}...", args.file);
-        let dataset = Dataset::open(&args.file)
+        eprintln!("📂 Opening {} as {}...", args.file, match input_format {
+            InputFormat::Jsonl => "JSONL",
+            InputFormat::Parquet => "Parquet",
+            InputFormat::Csv => "CSV",
+        });
+        let dataset = Dataset::open_with_format(&args.file, input_format)
             .with_context(|| format!("Failed to open dataset: {}", args.file))?;
         eprintln!(
-            "✓ Loaded {} lines ({}) in memory-mapped mode",
+            "✓ Loaded {} lines ({}) as {}",
             dataset.line_count(),
-            dataset.size_human()
+            dataset.size_human(),
+            dataset.format_name()
         );
         dataset
     };
@@ -98,7 +127,7 @@ fn main() -> Result<()> {
     if let Some(ref tokenizer_path) = args.tokenizer_path {
         // Custom tokenizer path takes priority
         eprintln!("🔤 Loading tokenizer from {}...", tokenizer_path);
-        match TokenizerWrapper::from_file(&tokenizer_path) {
+        match TokenizerWrapper::from_file(tokenizer_path) {
             Ok(tokenizer) => {
                 eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
                 app = app.with_tokenizer(tokenizer);
@@ -108,25 +137,47 @@ fn main() -> Result<()> {
             }
         }
     } else if args.tokenizer {
-        // Use default Llama 3.1 tokenizer from HuggingFace Hub
-        eprintln!("🔤 Loading default tokenizer (Llama 3.1) from HuggingFace...");
-        match TokenizerWrapper::from_pretrained("meta-llama/Llama-3.1-8B") {
-            Ok(tokenizer) => {
-                eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
-                app = app.with_tokenizer(tokenizer);
+        // Determine tokenizer type from CLI
+        let tokenizer_type = TokenizerType::from_str(&args.tokenizer_type)
+            .unwrap_or(TokenizerType::Tiktoken);
+
+        match tokenizer_type {
+            TokenizerType::Tiktoken => {
+                let encoding = TiktokenEncoding::from_str(&args.tiktoken_encoding)
+                    .unwrap_or(TiktokenEncoding::Cl100kBase);
+                eprintln!("🔤 Loading Tiktoken tokenizer ({:?})...", encoding);
+                match TokenizerWrapper::from_tiktoken(encoding) {
+                    Ok(tokenizer) => {
+                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        app = app.with_tokenizer(tokenizer);
+                    }
+                    Err(e) => {
+                        eprintln!("⚠ Failed to load Tiktoken tokenizer: {}", e);
+                    }
+                }
             }
-            Err(e) => {
-                eprintln!("⚠ Failed to load tokenizer: {}", e);
-                eprintln!("  Tip: You may need to accept Llama 3.1's license on HuggingFace");
-                eprintln!("  Falling back to GPT-2...");
-                // Fallback to GPT-2 which doesn't require authentication
+            TokenizerType::HuggingFace => {
+                eprintln!("🔤 Loading HuggingFace tokenizer (Llama 3.1)...");
+                match TokenizerWrapper::from_pretrained("meta-llama/Llama-3.1-8B") {
+                    Ok(tokenizer) => {
+                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        app = app.with_tokenizer(tokenizer);
+                    }
+                    Err(e) => {
+                        eprintln!("⚠ Failed to load tokenizer: {}", e);
+                        eprintln!("  Tip: You may need to accept Llama 3.1's license");
+                    }
+                }
+            }
+            TokenizerType::Gpt2 => {
+                eprintln!("🔤 Loading GPT-2 tokenizer (legacy)...");
                 match TokenizerWrapper::from_pretrained("gpt2") {
                     Ok(tokenizer) => {
                         eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
                         app = app.with_tokenizer(tokenizer);
                     }
                     Err(e) => {
-                        eprintln!("⚠ Failed to load fallback tokenizer: {}", e);
+                        eprintln!("⚠ Failed to load GPT-2 tokenizer: {}", e);
                     }
                 }
             }
