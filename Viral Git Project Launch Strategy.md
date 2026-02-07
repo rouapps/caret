@@ -2,7 +2,7 @@
 
 Strategic Engineering of Viral Developer
 Tools in the AI Era: A Comprehensive
-Blueprint for LazyAlign
+Blueprint for Caret
 - The Developer Landscape of 2026: Vibe Coding and
 the Infrastructure Gap
 The software development ecosystem in 2026 is defined by a radical bifurcation in

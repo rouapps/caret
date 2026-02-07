@@ -1,4 +1,4 @@
-//! LazyAlign - Token X-Ray visualization
+//! Caret - Token X-Ray visualization
 //!
 //! Integrates HuggingFace tokenizers for visualizing token boundaries.
 

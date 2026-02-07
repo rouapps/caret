@@ -1,11 +1,12 @@
 [package]
-name = "lazyalign"
-version = "0.1.0"
-edition = "2024"
+name = "caret"
+version = "0.2.0"
+edition = "2026"
 description = "A blazingly fast TUI for inspecting and curating LLM training datasets"
-authors = ["LazyAlign Contributors"]
+authors = ["Caret Contributors"]
 license = "MIT"
-repository = "https://github.com/yourusername/lazyalign"
+repository = "https://github.com/rayanouaddi/caret"
+homepage = "https://github.com/rayanouaddi/caret"
 keywords = ["tui", "llm", "dataset", "tokenizer", "ai"]
 categories = ["command-line-utilities", "development-tools"]
 

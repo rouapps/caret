@@ -1,4 +1,4 @@
-//! LazyAlign - Reasoning dataset linter
+//! Caret - Reasoning dataset linter
 //!
 //! Validates Chain-of-Thought datasets for common errors.
 

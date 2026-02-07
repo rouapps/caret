@@ -1,4 +1,4 @@
-//! LazyAlign - Terminal User Interface setup and lifecycle
+//! Caret - Terminal User Interface setup and lifecycle
 //!
 //! Handles raw mode, alternate screen, and panic recovery.
 

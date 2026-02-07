@@ -1,4 +1,4 @@
-//! LazyAlign - UI rendering
+//! Caret - UI rendering
 //!
 //! Renders the main interface using Ratatui widgets.
 
@@ -196,7 +196,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     );
 
     let status_line = Line::from(vec![
-        Span::styled(" LazyAlign v0.1.0 ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(" Caret v0.2.0 ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
         Span::styled("│", Style::default().fg(theme.border)),
         Span::styled(format!(" {} ", app.dataset.size_human()), Style::default().fg(theme.fg)),
         Span::styled("│", Style::default().fg(theme.border)),

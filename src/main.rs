@@ -1,4 +1,4 @@
-//! LazyAlign - A blazingly fast TUI for inspecting LLM datasets
+//! Caret - A blazingly fast TUI for inspecting LLM datasets
 //!
 //! Provides instant file opening for massive JSONL files,
 //! token visualization, and reasoning data validation.
@@ -21,7 +21,7 @@ use linter::Linter;
 use tokenizer::TokenizerWrapper;
 use tui::Tui;
 
-/// LazyAlign - Blazingly fast TUI for LLM dataset curation
+/// Caret - Blazingly fast TUI for LLM dataset curation
 #[derive(FromArgs)]
 struct Args {
     /// path to the JSONL file to inspect

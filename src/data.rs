@@ -1,4 +1,4 @@
-//! LazyAlign - Memory-mapped dataset handling
+//! Caret - Memory-mapped dataset handling
 //!
 //! Provides zero-copy access to massive JSONL files using mmap.
 //! Also supports reading from stdin for pipeline workflows.
@@ -79,7 +79,7 @@ impl Dataset {
 
     /// Read dataset from stdin
     ///
-    /// Supports pipeline workflows: `cat data.jsonl | lazyalign -`
+    /// Supports pipeline workflows: `cat data.jsonl | caret -`
     pub fn from_stdin() -> Result<Self> {
         let mut buffer = Vec::new();
         io::stdin().lock().read_to_end(&mut buffer)?;

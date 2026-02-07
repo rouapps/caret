@@ -1,4 +1,4 @@
-//! LazyAlign - Application state management
+//! Caret - Application state management
 
 use crate::data::Dataset;
 use crate::linter::LintResult;
