@@ -44,15 +44,28 @@ struct Args {
 fn main() -> Result<()> {
     let args: Args = argh::from_env();
 
-    // Load the dataset using memory mapping
-    eprintln!("📂 Opening {}...", args.file);
-    let dataset = Dataset::open(&args.file)
-        .with_context(|| format!("Failed to open dataset: {}", args.file))?;
-    eprintln!(
-        "✓ Loaded {} lines ({}) in memory-mapped mode",
-        dataset.line_count(),
-        dataset.size_human()
-    );
+    // Load the dataset - support stdin with "-"
+    let dataset = if args.file == "-" {
+        eprintln!("📂 Reading from stdin...");
+        let dataset = Dataset::from_stdin()
+            .with_context(|| "Failed to read from stdin")?;
+        eprintln!(
+            "✓ Loaded {} lines ({}) from stdin",
+            dataset.line_count(),
+            dataset.size_human()
+        );
+        dataset
+    } else {
+        eprintln!("📂 Opening {}...", args.file);
+        let dataset = Dataset::open(&args.file)
+            .with_context(|| format!("Failed to open dataset: {}", args.file))?;
+        eprintln!(
+            "✓ Loaded {} lines ({}) in memory-mapped mode",
+            dataset.line_count(),
+            dataset.size_human()
+        );
+        dataset
+    };
 
     // Create the app
     let mut app = App::new(dataset);
@@ -134,6 +147,11 @@ fn main() -> Result<()> {
                     // Toggle Token X-Ray mode
                     (KeyCode::Tab, _) => {
                         app.view_mode.toggle();
+                    }
+
+                    // Toggle detail panel
+                    (KeyCode::Enter, _) => {
+                        app.toggle_detail();
                     }
 
                     // Toggle help

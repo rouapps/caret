@@ -47,16 +47,30 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     app.set_viewport_height(frame.area().height as usize);
 
     // Main layout: content area + status bar
-    let chunks = Layout::default()
+    let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(3), Constraint::Length(3)])
         .split(frame.area());
 
-    // Render main content area
-    render_content(frame, app, chunks[0], &theme);
+    // If detail panel is visible, split content area horizontally
+    if app.show_detail {
+        let content_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(main_chunks[0]);
+
+        // Render list on left
+        render_content(frame, app, content_chunks[0], &theme);
+        
+        // Render detail panel on right
+        render_detail_panel(frame, app, content_chunks[1], &theme);
+    } else {
+        // Render main content area (full width)
+        render_content(frame, app, main_chunks[0], &theme);
+    }
 
     // Render status bar
-    render_status_bar(frame, app, chunks[1], &theme);
+    render_status_bar(frame, app, main_chunks[1], &theme);
 
     // Render help popup if visible
     if app.show_help {
@@ -207,7 +221,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
 /// Render help popup
 fn render_help_popup(frame: &mut Frame, theme: &Theme) {
-    let area = centered_rect(50, 60, frame.area());
+    let area = centered_rect(55, 70, frame.area());
 
     // Clear the background
     frame.render_widget(Clear, area);
@@ -215,6 +229,7 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
     let help_text = vec![
         Line::from(Span::styled("⌨️  Keyboard Shortcuts", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
         Line::from(""),
+        Line::from(Span::styled("Navigation", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD))),
         Line::from(vec![
             Span::styled("  j / ↓    ", Style::default().fg(theme.warning)),
             Span::raw("Move down"),
@@ -240,9 +255,14 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
             Span::raw("Page up"),
         ]),
         Line::from(""),
+        Line::from(Span::styled("View Modes", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
         Line::from(vec![
             Span::styled("  Tab      ", Style::default().fg(theme.accent)),
-            Span::raw("Toggle Token X-Ray mode"),
+            Span::raw("Cycle: TEXT → TOKEN X-RAY → TREE"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter    ", Style::default().fg(theme.accent)),
+            Span::raw("Toggle detail panel (pretty JSON)"),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -266,6 +286,35 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
         .wrap(Wrap { trim: false });
 
     frame.render_widget(help, area);
+}
+
+/// Render the detail panel showing pretty-printed JSON
+fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+    let pretty_json = app.current_line_pretty();
+    
+    // Split lines for display
+    let lines: Vec<Line> = pretty_json
+        .lines()
+        .map(|line| {
+            // Basic syntax highlighting for JSON
+            let colored = highlight_json(line, theme);
+            colored
+        })
+        .collect();
+
+    let title = format!(" Record {} ", app.selected_line + 1);
+    
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(Span::styled(title, Style::default().fg(theme.accent)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.bg)),
+        )
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(paragraph, area);
 }
 
 /// Basic JSON syntax highlighting

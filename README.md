@@ -28,7 +28,17 @@ Built for Chain-of-Thought datasets. Automatically detects:
 - Invalid JSON/JSONL structure  
 - Missing required keys
 
-## 🚀 Quick Start
+### 📝 Detail Panel (NEW)
+Press `Enter` to open a split-screen view with pretty-printed JSON. Navigate deep nested structures without squinting at minified data.
+
+### � Pipeline Support (NEW)
+Fully compatible with Unix pipelines:
+```bash
+cat huge_dataset.jsonl | lazyalign -
+curl https://example.com/data.jsonl | lazyalign -
+```
+
+## �🚀 Quick Start
 
 ```bash
 # Install from source
@@ -54,7 +64,8 @@ lazyalign your_dataset.jsonl --tokenizer path/to/tokenizer.json
 | `G` | Go to bottom |
 | `Ctrl+d` | Page down |
 | `Ctrl+u` | Page up |
-| `Tab` | Toggle Token X-Ray mode |
+| `Tab` | Cycle view: TEXT → TOKEN X-RAY → TREE |
+| `Enter` | Toggle detail panel (pretty JSON) |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -87,6 +98,9 @@ lazyalign data.jsonl --lint --required-keys "messages,prompt"
 
 # Token visualization (requires tokenizer.json)
 lazyalign data.jsonl --tokenizer ./llama3-tokenizer.json
+
+# Pipeline mode (read from stdin)
+cat data.jsonl | lazyalign -
 ```
 
 ## 🎯 Why LazyAlign?

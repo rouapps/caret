@@ -11,13 +11,16 @@ pub enum ViewMode {
     Text,
     /// Token X-Ray mode showing tokenization boundaries
     TokenXray,
+    /// JSON tree view for nested structures
+    Tree,
 }
 
 impl ViewMode {
     pub fn toggle(&mut self) {
         *self = match self {
             ViewMode::Text => ViewMode::TokenXray,
-            ViewMode::TokenXray => ViewMode::Text,
+            ViewMode::TokenXray => ViewMode::Tree,
+            ViewMode::Tree => ViewMode::Text,
         };
     }
 
@@ -25,6 +28,7 @@ impl ViewMode {
         match self {
             ViewMode::Text => "TEXT",
             ViewMode::TokenXray => "TOKEN X-RAY",
+            ViewMode::Tree => "TREE",
         }
     }
 }
@@ -49,6 +53,10 @@ pub struct App {
     pub should_quit: bool,
     /// Currently selected line for details
     pub selected_line: usize,
+    /// Whether to show the detail panel
+    pub show_detail: bool,
+    /// Tree expansion state for JSON tree view
+    pub tree_expanded: std::collections::HashSet<String>,
 }
 
 impl App {
@@ -64,6 +72,31 @@ impl App {
             show_help: false,
             should_quit: false,
             selected_line: 0,
+            show_detail: false,
+            tree_expanded: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Toggle detail panel visibility
+    pub fn toggle_detail(&mut self) {
+        self.show_detail = !self.show_detail;
+    }
+
+    /// Get the current line content
+    pub fn current_line_content(&self) -> Option<&str> {
+        self.dataset.get_line(self.selected_line)
+    }
+
+    /// Get pretty-printed JSON for current line
+    pub fn current_line_pretty(&self) -> String {
+        if let Some(line) = self.current_line_content() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+                serde_json::to_string_pretty(&value).unwrap_or_else(|_| line.to_string())
+            } else {
+                line.to_string()
+            }
+        } else {
+            String::new()
         }
     }
 

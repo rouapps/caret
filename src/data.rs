@@ -1,16 +1,42 @@
 //! LazyAlign - Memory-mapped dataset handling
 //!
 //! Provides zero-copy access to massive JSONL files using mmap.
+//! Also supports reading from stdin for pipeline workflows.
 
 use anyhow::{Context, Result};
 use memmap2::Mmap;
 use std::fs::File;
+use std::io::{self, BufRead, Read};
 use std::path::Path;
 
-/// Dataset backed by memory-mapped file with pre-computed line offsets
+/// Storage backend for the dataset
+enum DataStorage {
+    /// Memory-mapped file (zero-copy, for large files)
+    Mmap(Mmap),
+    /// In-memory buffer (for stdin or small files)
+    InMemory(Vec<u8>),
+}
+
+impl DataStorage {
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            DataStorage::Mmap(m) => m.as_ref(),
+            DataStorage::InMemory(v) => v.as_slice(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            DataStorage::Mmap(m) => m.len(),
+            DataStorage::InMemory(v) => v.len(),
+        }
+    }
+}
+
+/// Dataset backed by memory-mapped file or in-memory buffer with pre-computed line offsets
 pub struct Dataset {
-    /// Memory-mapped file content
-    mmap: Mmap,
+    /// Data storage (mmap or in-memory)
+    storage: DataStorage,
     /// Byte offsets for the start of each line
     line_offsets: Vec<usize>,
     /// File path for display
@@ -44,9 +70,34 @@ impl Dataset {
         }
 
         Ok(Self {
-            mmap,
+            storage: DataStorage::Mmap(mmap),
             line_offsets,
             path: path_ref.display().to_string(),
+            size,
+        })
+    }
+
+    /// Read dataset from stdin
+    ///
+    /// Supports pipeline workflows: `cat data.jsonl | lazyalign -`
+    pub fn from_stdin() -> Result<Self> {
+        let mut buffer = Vec::new();
+        io::stdin().lock().read_to_end(&mut buffer)?;
+        
+        let size = buffer.len() as u64;
+        
+        // Build line index
+        let mut line_offsets = vec![0];
+        for (i, &byte) in buffer.iter().enumerate() {
+            if byte == b'\n' && i + 1 < buffer.len() {
+                line_offsets.push(i + 1);
+            }
+        }
+
+        Ok(Self {
+            storage: DataStorage::InMemory(buffer),
+            line_offsets,
+            path: "<stdin>".to_string(),
             size,
         })
     }
@@ -65,20 +116,21 @@ impl Dataset {
             return None;
         }
 
+        let data = self.storage.as_bytes();
         let start = self.line_offsets[index];
         let end = if index + 1 < self.line_offsets.len() {
             self.line_offsets[index + 1] - 1 // Exclude newline
         } else {
-            self.mmap.len()
+            data.len()
         };
 
         // Handle edge case where line is empty or ends at file end
-        let end = end.min(self.mmap.len());
+        let end = end.min(data.len());
         if start >= end {
             return Some("");
         }
 
-        std::str::from_utf8(&self.mmap[start..end]).ok()
+        std::str::from_utf8(&data[start..end]).ok()
     }
 
     /// Get a range of lines for efficient batch access
