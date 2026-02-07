@@ -28,10 +28,17 @@ Built for Chain-of-Thought datasets. Automatically detects:
 - Invalid JSON/JSONL structure  
 - Missing required keys
 
-### 📝 Detail Panel (NEW)
+### 🔧 Auto-Fix Mode (NEW)
+Automatically repair common dataset issues:
+```bash
+caret data.jsonl --fix              # Creates data_fixed.jsonl
+caret data.jsonl --fix -o clean.jsonl  # Custom output path
+```
+
+### 📝 Detail Panel
 Press `Enter` to open a split-screen view with pretty-printed JSON. Navigate deep nested structures without squinting at minified data.
 
-### 🔗 Pipeline Support (NEW)
+### 🔗 Pipeline Support
 Fully compatible with Unix pipelines:
 ```bash
 cat huge_dataset.jsonl | caret -
@@ -101,6 +108,12 @@ caret data.jsonl --tokenizer ./llama3-tokenizer.json
 
 # Pipeline mode (read from stdin)
 cat data.jsonl | caret -
+
+# Auto-fix mode (headless, creates new file)
+caret data.jsonl --fix                 # → data_fixed.jsonl
+caret data.jsonl --fix -o output.jsonl # Custom output
+caret data.jsonl --fix --fix-in-place  # Overwrite original (careful!)
+caret data.jsonl --fix --skip-invalid  # Skip unfixable lines
 ```
 
 ## 🎯 Why Caret?
