@@ -1,4 +1,4 @@
-# 🚀 LazyAlign
+# 🚀 Caret
 
 <p align="center">
   <b>Blazingly fast TUI for inspecting and curating LLM training datasets</b>
@@ -31,27 +31,27 @@ Built for Chain-of-Thought datasets. Automatically detects:
 ### 📝 Detail Panel (NEW)
 Press `Enter` to open a split-screen view with pretty-printed JSON. Navigate deep nested structures without squinting at minified data.
 
-### � Pipeline Support (NEW)
+### 🔗 Pipeline Support (NEW)
 Fully compatible with Unix pipelines:
 ```bash
-cat huge_dataset.jsonl | lazyalign -
-curl https://example.com/data.jsonl | lazyalign -
+cat huge_dataset.jsonl | caret -
+curl https://example.com/data.jsonl | caret -
 ```
 
-## �🚀 Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Install from source
 cargo install --path .
 
 # Open a dataset
-lazyalign your_dataset.jsonl
+caret your_dataset.jsonl
 
 # With linter
-lazyalign your_dataset.jsonl --lint
+caret your_dataset.jsonl --lint
 
 # With tokenizer (Token X-Ray mode)
-lazyalign your_dataset.jsonl --tokenizer path/to/tokenizer.json
+caret your_dataset.jsonl --tokenizer path/to/tokenizer.json
 ```
 
 ## ⌨️ Keyboard Shortcuts
@@ -74,10 +74,10 @@ lazyalign your_dataset.jsonl --tokenizer path/to/tokenizer.json
 ### From Source (Recommended)
 
 ```bash
-git clone https://github.com/yourusername/lazyalign
-cd lazyalign
+git clone https://github.com/yourusername/caret
+cd caret
 cargo build --release
-./target/release/lazyalign --help
+./target/release/caret --help
 ```
 
 ### Requirements
@@ -88,28 +88,28 @@ cargo build --release
 
 ```bash
 # Basic usage
-lazyalign data.jsonl
+caret data.jsonl
 
 # Enable linting
-lazyalign data.jsonl --lint
+caret data.jsonl --lint
 
 # Lint with required keys check
-lazyalign data.jsonl --lint --required-keys "messages,prompt"
+caret data.jsonl --lint --required-keys "messages,prompt"
 
 # Token visualization (requires tokenizer.json)
-lazyalign data.jsonl --tokenizer ./llama3-tokenizer.json
+caret data.jsonl --tokenizer ./llama3-tokenizer.json
 
 # Pipeline mode (read from stdin)
-cat data.jsonl | lazyalign -
+cat data.jsonl | caret -
 ```
 
-## 🎯 Why LazyAlign?
+## 🎯 Why Caret?
 
 Fine-tuning LLMs is brutally unforgiving. A single malformed JSON line or unbalanced reasoning tag can tank your training run and waste thousands of dollars in compute.
 
-**LazyAlign catches these issues before they cost you:**
+**Caret catches these issues before they cost you:**
 
-| Problem | VS Code | jq | LazyAlign |
+| Problem | VS Code | jq | Caret |
 |---------|---------|----|---------| 
 | Open 10GB file | ❌ Crashes | ✅ Slow | ✅ Instant |
 | See token boundaries | ❌ | ❌ | ✅ |
@@ -120,7 +120,7 @@ Fine-tuning LLMs is brutally unforgiving. A single malformed JSON line or unbala
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    LazyAlign TUI                      │
+│                      Caret TUI                       │
 ├──────────────────────────────────────────────────────┤
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
 │  │ Dataset  │  │Tokenizer │  │    Linter        │   │
@@ -160,3 +160,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 <p align="center">
   Built with 🦀 Rust and ❤️ for the LLM community
 </p>
+# caret
