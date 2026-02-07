@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use memmap2::Mmap;
 use std::fs::File;
-use std::io::{self, BufRead, Read};
+use std::io::{self, Read};
 use std::path::Path;
 
 /// Storage backend for the dataset
@@ -17,6 +17,7 @@ enum DataStorage {
     InMemory(Vec<u8>),
 }
 
+#[allow(dead_code)]
 impl DataStorage {
     fn as_bytes(&self) -> &[u8] {
         match self {
@@ -83,9 +84,9 @@ impl Dataset {
     pub fn from_stdin() -> Result<Self> {
         let mut buffer = Vec::new();
         io::stdin().lock().read_to_end(&mut buffer)?;
-        
+
         let size = buffer.len() as u64;
-        
+
         // Build line index
         let mut line_offsets = vec![0];
         for (i, &byte) in buffer.iter().enumerate() {
@@ -134,6 +135,7 @@ impl Dataset {
     }
 
     /// Get a range of lines for efficient batch access
+    #[allow(dead_code)]
     pub fn get_lines(&self, start: usize, count: usize) -> Vec<&str> {
         (start..start + count)
             .filter_map(|i| self.get_line(i))

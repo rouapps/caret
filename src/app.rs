@@ -56,6 +56,7 @@ pub struct App {
     /// Whether to show the detail panel
     pub show_detail: bool,
     /// Tree expansion state for JSON tree view
+    #[allow(dead_code)]
     pub tree_expanded: std::collections::HashSet<String>,
 }
 
@@ -114,9 +115,13 @@ impl App {
 
     /// Scroll down by n lines
     pub fn scroll_down(&mut self, n: usize) {
-        let max_scroll = self.dataset.line_count().saturating_sub(self.viewport_height);
+        let max_scroll = self
+            .dataset
+            .line_count()
+            .saturating_sub(self.viewport_height);
         self.scroll = (self.scroll + n).min(max_scroll);
-        self.selected_line = (self.selected_line + n).min(self.dataset.line_count().saturating_sub(1));
+        self.selected_line =
+            (self.selected_line + n).min(self.dataset.line_count().saturating_sub(1));
     }
 
     /// Scroll up by n lines
@@ -133,7 +138,10 @@ impl App {
 
     /// Jump to the end
     pub fn goto_bottom(&mut self) {
-        let max_scroll = self.dataset.line_count().saturating_sub(self.viewport_height);
+        let max_scroll = self
+            .dataset
+            .line_count()
+            .saturating_sub(self.viewport_height);
         self.scroll = max_scroll;
         self.selected_line = self.dataset.line_count().saturating_sub(1);
     }
@@ -149,6 +157,7 @@ impl App {
     }
 
     /// Get lint error for a specific line
+    #[allow(dead_code)]
     pub fn get_lint_error(&self, line_index: usize) -> Option<&LintResult> {
         self.lint_results.iter().find(|r| r.line == line_index)
     }

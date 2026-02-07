@@ -28,9 +28,13 @@ struct Args {
     #[argh(positional)]
     file: String,
 
-    /// path to tokenizer.json for Token X-Ray mode
-    #[argh(option, short = 't')]
-    tokenizer: Option<String>,
+    /// enable Token X-Ray mode with default Llama 3.1 tokenizer
+    #[argh(switch, short = 't')]
+    tokenizer: bool,
+
+    /// path to custom tokenizer.json (overrides default)
+    #[argh(option)]
+    tokenizer_path: Option<String>,
 
     /// run the linter on load
     #[argh(switch, short = 'l')]
@@ -47,8 +51,7 @@ fn main() -> Result<()> {
     // Load the dataset - support stdin with "-"
     let dataset = if args.file == "-" {
         eprintln!("📂 Reading from stdin...");
-        let dataset = Dataset::from_stdin()
-            .with_context(|| "Failed to read from stdin")?;
+        let dataset = Dataset::from_stdin().with_context(|| "Failed to read from stdin")?;
         eprintln!(
             "✓ Loaded {} lines ({}) from stdin",
             dataset.line_count(),
@@ -70,8 +73,9 @@ fn main() -> Result<()> {
     // Create the app
     let mut app = App::new(dataset);
 
-    // Load tokenizer if provided
-    if let Some(tokenizer_path) = args.tokenizer {
+    // Load tokenizer if requested
+    if let Some(tokenizer_path) = args.tokenizer_path {
+        // Custom tokenizer path takes priority
         eprintln!("🔤 Loading tokenizer from {}...", tokenizer_path);
         match TokenizerWrapper::from_file(&tokenizer_path) {
             Ok(tokenizer) => {
@@ -80,6 +84,30 @@ fn main() -> Result<()> {
             }
             Err(e) => {
                 eprintln!("⚠ Failed to load tokenizer: {}", e);
+            }
+        }
+    } else if args.tokenizer {
+        // Use default Llama 3.1 tokenizer from HuggingFace Hub
+        eprintln!("🔤 Loading default tokenizer (Llama 3.1) from HuggingFace...");
+        match TokenizerWrapper::from_pretrained("meta-llama/Llama-3.1-8B") {
+            Ok(tokenizer) => {
+                eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                app = app.with_tokenizer(tokenizer);
+            }
+            Err(e) => {
+                eprintln!("⚠ Failed to load tokenizer: {}", e);
+                eprintln!("  Tip: You may need to accept Llama 3.1's license on HuggingFace");
+                eprintln!("  Falling back to GPT-2...");
+                // Fallback to GPT-2 which doesn't require authentication
+                match TokenizerWrapper::from_pretrained("gpt2") {
+                    Ok(tokenizer) => {
+                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        app = app.with_tokenizer(tokenizer);
+                    }
+                    Err(e) => {
+                        eprintln!("⚠ Failed to load fallback tokenizer: {}", e);
+                    }
+                }
             }
         }
     }

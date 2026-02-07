@@ -7,6 +7,7 @@ use regex::Regex;
 
 /// Types of lint errors
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum LintError {
     /// Invalid JSON structure
     InvalidJson(String),
@@ -20,6 +21,7 @@ pub enum LintError {
     EmptyContent,
 }
 
+#[allow(dead_code)]
 impl LintError {
     pub fn message(&self) -> String {
         match self {
@@ -50,6 +52,7 @@ pub struct LintResult {
     /// Line number (0-indexed)
     pub line: usize,
     /// The error found
+    #[allow(dead_code)]
     pub error: LintError,
 }
 

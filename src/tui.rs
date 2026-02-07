@@ -6,10 +6,10 @@ use anyhow::Result;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{stdout, Stdout};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io::{Stdout, stdout};
 use std::panic;
 
 /// Terminal wrapper that ensures proper cleanup

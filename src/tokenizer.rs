@@ -3,8 +3,11 @@
 //! Integrates HuggingFace tokenizers for visualizing token boundaries.
 
 use anyhow::Result;
+use lru::LruCache;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+use std::cell::RefCell;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use tokenizers::Tokenizer;
 
@@ -16,10 +19,15 @@ const TOKEN_COLORS: [Color; 4] = [
     Color::Rgb(80, 80, 80),    // Medium Gray
 ];
 
-/// Wrapper around HuggingFace tokenizer
+/// Cache size for tokenized lines (avoids re-tokenizing on scroll)
+const CACHE_SIZE: usize = 500;
+
+/// Wrapper around HuggingFace tokenizer with LRU cache for performance
 pub struct TokenizerWrapper {
     tokenizer: Tokenizer,
     pub name: String,
+    /// LRU cache for tokenized line offsets to avoid re-encoding
+    cache: RefCell<LruCache<String, Vec<(usize, usize)>>>,
 }
 
 impl TokenizerWrapper {
@@ -35,18 +43,54 @@ impl TokenizerWrapper {
             .unwrap_or("unknown")
             .to_string();
 
-        Ok(Self { tokenizer, name })
+        Ok(Self {
+            tokenizer,
+            name,
+            cache: RefCell::new(LruCache::new(NonZeroUsize::new(CACHE_SIZE).unwrap())),
+        })
+    }
+
+    /// Load a pretrained tokenizer from HuggingFace Hub
+    pub fn from_pretrained(model_id: &str) -> Result<Self> {
+        let tokenizer = Tokenizer::from_pretrained(model_id, None)
+            .map_err(|e| anyhow::anyhow!("Failed to load tokenizer from Hub: {}", e))?;
+
+        Ok(Self {
+            tokenizer,
+            name: model_id.to_string(),
+            cache: RefCell::new(LruCache::new(NonZeroUsize::new(CACHE_SIZE).unwrap())),
+        })
+    }
+
+    /// Get token offsets, using cache if available
+    fn get_offsets(&self, text: &str) -> Option<Vec<(usize, usize)>> {
+        // Check cache first
+        let cache_key = text.to_string();
+        {
+            let mut cache = self.cache.borrow_mut();
+            if let Some(cached) = cache.get(&cache_key) {
+                return Some(cached.clone());
+            }
+        }
+
+        // Encode and cache the result
+        let encoding = self.tokenizer.encode(text, false).ok()?;
+        let offsets: Vec<(usize, usize)> = encoding.get_offsets().to_vec();
+        
+        {
+            let mut cache = self.cache.borrow_mut();
+            cache.put(cache_key, offsets.clone());
+        }
+
+        Some(offsets)
     }
 
     /// Tokenize text and return spans with alternating background colors
     pub fn colorize_tokens(&self, text: &str) -> Line<'static> {
-        // Encode the text to get token offsets
-        let encoding = match self.tokenizer.encode(text, false) {
-            Ok(enc) => enc,
-            Err(_) => return Line::from(text.to_string()),
+        let offsets = match self.get_offsets(text) {
+            Some(o) => o,
+            None => return Line::from(text.to_string()),
         };
-
-        let offsets = encoding.get_offsets();
 
         if offsets.is_empty() {
             return Line::from(text.to_string());
@@ -86,6 +130,7 @@ impl TokenizerWrapper {
     }
 
     /// Count tokens in text
+    #[allow(dead_code)]
     pub fn count_tokens(&self, text: &str) -> usize {
         self.tokenizer
             .encode(text, false)
@@ -94,6 +139,7 @@ impl TokenizerWrapper {
     }
 
     /// Get token IDs for text
+    #[allow(dead_code)]
     pub fn get_token_ids(&self, text: &str) -> Vec<u32> {
         self.tokenizer
             .encode(text, false)

@@ -4,11 +4,11 @@
 
 use crate::app::{App, ViewMode};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
 /// Theme colors for the UI
@@ -61,7 +61,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         // Render list on left
         render_content(frame, app, content_chunks[0], &theme);
-        
+
         // Render detail panel on right
         render_detail_panel(frame, app, content_chunks[1], &theme);
     } else {
@@ -105,7 +105,9 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                     ),
                     Span::styled(
                         truncated,
-                        Style::default().fg(theme.error).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme.error)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ])
             } else if app.view_mode == ViewMode::TokenXray {
@@ -152,7 +154,7 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let mode_indicator = format!(" {} ", app.view_mode.label());
     let title = format!(
         " LazyAlign │ {} │ {} lines │ {} ",
-        app.dataset.path.split('/').last().unwrap_or("file"),
+        app.dataset.path.split('/').next_back().unwrap_or("file"),
         app.dataset.line_count(),
         mode_indicator
     );
@@ -196,9 +198,17 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     );
 
     let status_line = Line::from(vec![
-        Span::styled(" Caret v0.2.0 ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " Caret v0.2.0 ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("│", Style::default().fg(theme.border)),
-        Span::styled(format!(" {} ", app.dataset.size_human()), Style::default().fg(theme.fg)),
+        Span::styled(
+            format!(" {} ", app.dataset.size_human()),
+            Style::default().fg(theme.fg),
+        ),
         Span::styled("│", Style::default().fg(theme.border)),
         Span::styled(lint_status, lint_style),
         Span::styled("│", Style::default().fg(theme.border)),
@@ -227,9 +237,19 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
     frame.render_widget(Clear, area);
 
     let help_text = vec![
-        Line::from(Span::styled("⌨️  Keyboard Shortcuts", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "⌨️  Keyboard Shortcuts",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
-        Line::from(Span::styled("Navigation", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Navigation",
+            Style::default()
+                .fg(theme.warning)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
             Span::styled("  j / ↓    ", Style::default().fg(theme.warning)),
             Span::raw("Move down"),
@@ -255,7 +275,12 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
             Span::raw("Page up"),
         ]),
         Line::from(""),
-        Line::from(Span::styled("View Modes", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "View Modes",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![
             Span::styled("  Tab      ", Style::default().fg(theme.accent)),
             Span::raw("Cycle: TEXT → TOKEN X-RAY → TREE"),
@@ -291,19 +316,34 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
 /// Render the detail panel showing pretty-printed JSON
 fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let pretty_json = app.current_line_pretty();
-    
-    // Split lines for display
-    let lines: Vec<Line> = pretty_json
-        .lines()
-        .map(|line| {
-            // Basic syntax highlighting for JSON
-            let colored = highlight_json(line, theme);
-            colored
-        })
-        .collect();
 
-    let title = format!(" Record {} ", app.selected_line + 1);
-    
+    // Split lines for display - apply tokenization if in TOKEN X-RAY mode
+    let lines: Vec<Line> = if app.view_mode == ViewMode::TokenXray {
+        if let Some(ref tokenizer) = app.tokenizer {
+            pretty_json
+                .lines()
+                .map(|line| tokenizer.colorize_tokens(line))
+                .collect()
+        } else {
+            pretty_json
+                .lines()
+                .map(|line| highlight_json(line, theme))
+                .collect()
+        }
+    } else {
+        pretty_json
+            .lines()
+            .map(|line| highlight_json(line, theme))
+            .collect()
+    };
+
+    let mode_label = if app.view_mode == ViewMode::TokenXray && app.tokenizer.is_some() {
+        " (tokenized)"
+    } else {
+        ""
+    };
+    let title = format!(" Record {}{} ", app.selected_line + 1, mode_label);
+
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
