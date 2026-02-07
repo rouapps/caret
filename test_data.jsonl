@@ -1,8 +1,0 @@
-{"messages": [{"role": "user", "content": "What is the capital of France?"}, {"role": "assistant", "content": "<think>The user is asking about geography. France is a country in Western Europe. Its capital city is Paris.</think>Paris is the capital of France."}]}
-{"messages": [{"role": "user", "content": "Explain photosynthesis"}, {"role": "assistant", "content": "<think>Photosynthesis is the process by which plants convert sunlight into energy. I should explain the basic steps.</think>Photosynthesis is the process where plants use sunlight, water, and carbon dioxide to create glucose and oxygen."}]}
-{"messages": [{"role": "user", "content": "What is 2+2?"}, {"role": "assistant", "content": "<think>This is a simple math question.</think>2+2 equals 4."}]}
-{"messages": [{"role": "user", "content": "Tell me a joke"}, {"role": "assistant", "content": "<think>I should think of a clean, family-friendly joke.</think>Why don't scientists trust atoms? Because they make up everything!"}]}
-{"prompt": "broken json - missing closing
-{"messages": [{"role": "user", "content": "Test unbalanced tags"}, {"role": "assistant", "content": "<think>This is missing the closing think tag. Oops!"}]}
-{"messages": [{"role": "user", "content": "Good example"}, {"role": "assistant", "content": "<think>Properly balanced tags here.</think>This is a properly formatted response."}]}
-{"messages": [{"role": "user", "content": "Another good example"}, {"role": "assistant", "content": "<think>Let me think about this carefully.</think>Here is my well-reasoned answer."}]}

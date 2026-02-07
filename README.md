@@ -28,7 +28,7 @@ Built for Chain-of-Thought datasets. Automatically detects:
 - Invalid JSON/JSONL structure  
 - Missing required keys
 
-### 🔧 Auto-Fix Mode (NEW)
+### 🔧 Auto-Fix Mode (EXPERIMENTAL)
 Automatically repair common dataset issues:
 ```bash
 caret data.jsonl --fix              # Creates data_fixed.jsonl
