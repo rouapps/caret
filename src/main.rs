@@ -1,8 +1,9 @@
 //! Caret - A blazingly fast TUI for inspecting LLM datasets
 //!
 //! Provides instant file opening for massive JSONL, Parquet, and CSV files,
-//! token visualization, reasoning data validation, and SIMD-accelerated
-//! near-duplicate detection.
+//! token visualization, reasoning data validation, SIMD-accelerated
+//! near-duplicate detection, MCP server connectivity, and HuggingFace
+//! Hub streaming.
 
 use anyhow::{Context, Result};
 use argh::FromArgs;
@@ -10,6 +11,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use caret::app::App;
@@ -18,6 +20,8 @@ use caret::engine::{DedupEngine, DedupStrategy};
 use caret::fixer::{FixResult, Fixer, FixSummary};
 use caret::format::InputFormat;
 use caret::linter::Linter;
+use caret::mcp;
+use caret::streaming;
 use caret::tokenizer::{TiktokenEncoding, TokenizerType, TokenizerWrapper};
 use caret::tui::Tui;
 use caret::ui;
@@ -25,7 +29,7 @@ use caret::ui;
 /// Caret - Blazingly fast TUI for LLM dataset curation
 #[derive(FromArgs)]
 struct Args {
-    /// path to the dataset file (JSONL, Parquet, or CSV)
+    /// path to the dataset file (JSONL, Parquet, CSV, or hf://org/dataset)
     #[argh(positional)]
     file: String,
 
@@ -88,23 +92,50 @@ struct Args {
     /// export deduplicated dataset to this path
     #[argh(option)]
     dedup_export: Option<String>,
+
+    /// start MCP server on this port (exposes dataset as tools/resources to LLMs)
+    #[argh(option, default = "0")]
+    mcp_port: u16,
+
+    /// run MCP server only (headless, no TUI)
+    #[argh(switch)]
+    mcp_only: bool,
 }
 
 fn main() -> Result<()> {
     let args: Args = argh::from_env();
 
-    // Determine input format
-    let input_format = if args.format == "auto" {
-        InputFormat::detect(&args.file)
-    } else {
-        InputFormat::from_str(&args.format).unwrap_or_else(|| {
-            eprintln!("Warning: Unknown format '{}', using auto-detect", args.format);
-            InputFormat::detect(&args.file)
-        })
-    };
+    // Initialize tracing for async subsystems (MCP + streaming)
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("caret=info".parse().unwrap()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
 
-    // Load the dataset - support stdin with "-"
-    let dataset = if args.file == "-" {
+    // Check if this is a HF streaming URL
+    let is_hf_stream = args.file.starts_with("hf://");
+
+    // Build the tokio runtime — used for MCP server and HF streaming.
+    // We create it once and reuse it throughout the program lifetime.
+    let rt = tokio::runtime::Runtime::new()
+        .with_context(|| "Failed to create async runtime")?;
+
+    // Load the dataset — either local file, stdin, or HF stream
+    let dataset = if is_hf_stream {
+        eprintln!("Streaming from {}...", args.file);
+        let (dataset, meta) = rt.block_on(streaming::open_hf_stream(&args.file))
+            .with_context(|| format!("Failed to stream from {}", args.file))?;
+        eprintln!(
+            "Streamed {} lines ({}) — {} row-groups, {} columns",
+            dataset.line_count(),
+            dataset.size_human(),
+            meta.num_row_groups,
+            meta.columns.len(),
+        );
+        dataset
+    } else if args.file == "-" {
         eprintln!("Reading from stdin...");
         let dataset = Dataset::from_stdin().with_context(|| "Failed to read from stdin")?;
         eprintln!(
@@ -114,6 +145,16 @@ fn main() -> Result<()> {
         );
         dataset
     } else {
+        // Determine input format
+        let input_format = if args.format == "auto" {
+            InputFormat::detect(&args.file)
+        } else {
+            InputFormat::from_str(&args.format).unwrap_or_else(|| {
+                eprintln!("Warning: Unknown format '{}', using auto-detect", args.format);
+                InputFormat::detect(&args.file)
+            })
+        };
+
         eprintln!("Opening {} as {}...", args.file, match input_format {
             InputFormat::Jsonl => "JSONL",
             InputFormat::Parquet => "Parquet",
@@ -215,6 +256,75 @@ fn main() -> Result<()> {
     // Run dedup mode if requested (headless, no TUI)
     if args.dedup {
         return run_dedup_mode(&args, &app.dataset);
+    }
+
+    // ── MCP Server ──────────────────────────────────────────────────────
+    // If --mcp-port is set, start the MCP server as a background task.
+    // The server runs on a separate Tokio task and never blocks the TUI.
+    let mcp_port = if args.mcp_port > 0 {
+        args.mcp_port
+    } else if args.mcp_only {
+        3100 // Default MCP port
+    } else {
+        0
+    };
+
+    if mcp_port > 0 || args.mcp_only {
+        let dataset_arc = Arc::new(Dataset::from_raw_parts(
+            // Re-create from the app's dataset by reading all lines.
+            // This is a one-time cost to share data with the async MCP server.
+            {
+                let mut buf = Vec::new();
+                for i in 0..app.dataset.line_count() {
+                    if let Some(line) = app.dataset.get_line(i) {
+                        buf.extend_from_slice(line.as_bytes());
+                        buf.push(b'\n');
+                    }
+                }
+                let mut offsets = vec![0usize];
+                for (i, &b) in buf.iter().enumerate() {
+                    if b == b'\n' && i + 1 < buf.len() {
+                        offsets.push(i + 1);
+                    }
+                }
+                // Store offsets alongside buffer
+                // We'll construct the full Dataset below
+                buf
+            },
+            {
+                let mut buf = Vec::new();
+                for i in 0..app.dataset.line_count() {
+                    if let Some(line) = app.dataset.get_line(i) {
+                        buf.extend_from_slice(line.as_bytes());
+                        buf.push(b'\n');
+                    }
+                }
+                let mut offsets = vec![0usize];
+                for (i, &b) in buf.iter().enumerate() {
+                    if b == b'\n' && i + 1 < buf.len() {
+                        offsets.push(i + 1);
+                    }
+                }
+                offsets
+            },
+            app.dataset.path.clone(),
+            app.dataset.size,
+            app.dataset.format,
+        ));
+
+        let dataset_path = app.dataset.path.clone();
+        let port = if mcp_port > 0 { mcp_port } else { 3100 };
+
+        if args.mcp_only {
+            // Headless MCP-only mode — block on the server
+            eprintln!("Starting MCP server (headless) on port {}...", port);
+            rt.block_on(mcp::start_mcp_server(dataset_arc, dataset_path, port))?;
+            return Ok(());
+        } else {
+            // Background MCP server alongside the TUI
+            eprintln!("Starting MCP server on port {}...", port);
+            rt.spawn(mcp::start_mcp_server(dataset_arc, dataset_path, port));
+        }
     }
 
     // Initialize TUI

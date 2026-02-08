@@ -138,6 +138,26 @@ impl Dataset {
         })
     }
 
+    /// Create a dataset from raw parts (used by streaming module).
+    ///
+    /// This is the escape hatch for building a `Dataset` from bytes that
+    /// were fetched over the network rather than read from a local file.
+    pub fn from_raw_parts(
+        buffer: Vec<u8>,
+        line_offsets: Vec<usize>,
+        path: String,
+        size: u64,
+        format: InputFormat,
+    ) -> Self {
+        Self {
+            storage: DataStorage::InMemory(buffer),
+            line_offsets,
+            path,
+            size,
+            format,
+        }
+    }
+
     /// Read dataset from stdin
     ///
     /// Supports pipeline workflows: `cat data.jsonl | caret -`
