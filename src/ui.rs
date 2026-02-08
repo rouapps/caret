@@ -21,6 +21,7 @@ pub struct Theme {
     pub border: Color,
     pub highlight: Color,
     pub muted: Color,
+    pub duplicate: Color,
 }
 
 impl Default for Theme {
@@ -35,6 +36,7 @@ impl Default for Theme {
             border: Color::Rgb(98, 114, 164),
             highlight: Color::Rgb(68, 71, 90),
             muted: Color::Rgb(98, 114, 164),
+            duplicate: Color::Rgb(255, 170, 50), // Amber for duplicates
         }
     }
 }
@@ -95,9 +97,9 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                 line_content.to_string()
             };
 
-            // Create styled line based on view mode and lint status
+            // Create styled line based on view mode, lint status, and dedup status
             let line: Line = if app.line_has_error(line_idx) {
-                // Error line - highlight in red
+                // Error line - highlight in red (highest priority)
                 Line::from(vec![
                     Span::styled(
                         format!("{:>6} │ ", line_idx + 1),
@@ -108,6 +110,25 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
                         Style::default()
                             .fg(theme.error)
                             .add_modifier(Modifier::BOLD),
+                    ),
+                ])
+            } else if app.line_is_duplicate(line_idx) {
+                // Duplicate line - highlight in amber
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:>6} │ ", line_idx + 1),
+                        Style::default().fg(theme.duplicate),
+                    ),
+                    Span::styled(
+                        "DUP ",
+                        Style::default()
+                            .fg(Color::Rgb(40, 42, 54))
+                            .bg(theme.duplicate)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        truncated,
+                        Style::default().fg(theme.duplicate),
                     ),
                 ])
             } else if app.view_mode == ViewMode::TokenXray {
@@ -152,11 +173,17 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         .collect();
 
     let mode_indicator = format!(" {} ", app.view_mode.label());
+    let dedup_indicator = if app.dedup_result.is_some() {
+        " | DEDUP"
+    } else {
+        ""
+    };
     let title = format!(
-        " LazyAlign │ {} │ {} lines │ {} ",
+        " Caret │ {} │ {} lines │ {}{}  ",
         app.dataset.path.split('/').next_back().unwrap_or("file"),
         app.dataset.line_count(),
-        mode_indicator
+        mode_indicator,
+        dedup_indicator,
     );
 
     let list = List::new(items).block(
@@ -174,9 +201,9 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let lint_count = app.lint_results.len();
     let lint_status = if lint_count > 0 {
-        format!(" ⚠ {} issues ", lint_count)
+        format!(" {} issues ", lint_count)
     } else {
-        " ✓ No issues ".to_string()
+        " No issues ".to_string()
     };
 
     let lint_style = if lint_count > 0 {
@@ -186,10 +213,23 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     };
 
     let tokenizer_status = if let Some(ref t) = app.tokenizer {
-        format!(" 🔤 {} ", t.name)
+        format!(" {} ", t.name)
     } else {
         " No tokenizer ".to_string()
     };
+
+    let dedup_status = if let Some(ref result) = app.dedup_result {
+        format!(
+            " {} dups ({:.0}%) {:.0}ms ",
+            result.duplicate_count,
+            result.dedup_ratio() * 100.0,
+            result.elapsed_us as f64 / 1000.0,
+        )
+    } else {
+        String::new()
+    };
+
+    let dedup_style = Style::default().fg(theme.duplicate);
 
     let position = format!(
         " Line {}/{} ",
@@ -197,27 +237,35 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         app.dataset.line_count()
     );
 
-    let status_line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
-            " Caret v0.2.0 ",
+            " Caret v0.3.0 ",
             Style::default()
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("│", Style::default().fg(theme.border)),
+        Span::styled("|", Style::default().fg(theme.border)),
         Span::styled(
             format!(" {} ", app.dataset.size_human()),
             Style::default().fg(theme.fg),
         ),
-        Span::styled("│", Style::default().fg(theme.border)),
+        Span::styled("|", Style::default().fg(theme.border)),
         Span::styled(lint_status, lint_style),
-        Span::styled("│", Style::default().fg(theme.border)),
+        Span::styled("|", Style::default().fg(theme.border)),
         Span::styled(tokenizer_status, Style::default().fg(theme.muted)),
-        Span::styled("│", Style::default().fg(theme.border)),
-        Span::styled(position, Style::default().fg(theme.fg)),
-        Span::styled("│", Style::default().fg(theme.border)),
-        Span::styled(" ?:Help q:Quit ", Style::default().fg(theme.muted)),
-    ]);
+    ];
+
+    if !dedup_status.is_empty() {
+        spans.push(Span::styled("|", Style::default().fg(theme.border)));
+        spans.push(Span::styled(dedup_status, dedup_style));
+    }
+
+    spans.push(Span::styled("|", Style::default().fg(theme.border)));
+    spans.push(Span::styled(position, Style::default().fg(theme.fg)));
+    spans.push(Span::styled("|", Style::default().fg(theme.border)));
+    spans.push(Span::styled(" ?:Help q:Quit ", Style::default().fg(theme.muted)));
+
+    let status_line = Line::from(spans);
 
     let status_bar = Paragraph::new(status_line).block(
         Block::default()
@@ -231,14 +279,14 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
 /// Render help popup
 fn render_help_popup(frame: &mut Frame, theme: &Theme) {
-    let area = centered_rect(55, 70, frame.area());
+    let area = centered_rect(55, 80, frame.area());
 
     // Clear the background
     frame.render_widget(Clear, area);
 
     let help_text = vec![
         Line::from(Span::styled(
-            "⌨️  Keyboard Shortcuts",
+            "Keyboard Shortcuts",
             Style::default()
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
@@ -251,11 +299,11 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("  j / ↓    ", Style::default().fg(theme.warning)),
+            Span::styled("  j / Down ", Style::default().fg(theme.warning)),
             Span::raw("Move down"),
         ]),
         Line::from(vec![
-            Span::styled("  k / ↑    ", Style::default().fg(theme.warning)),
+            Span::styled("  k / Up   ", Style::default().fg(theme.warning)),
             Span::raw("Move up"),
         ]),
         Line::from(vec![
@@ -283,11 +331,22 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
         )),
         Line::from(vec![
             Span::styled("  Tab      ", Style::default().fg(theme.accent)),
-            Span::raw("Cycle: TEXT → TOKEN X-RAY → TREE"),
+            Span::raw("Cycle: TEXT -> TOKEN X-RAY -> TREE"),
         ]),
         Line::from(vec![
             Span::styled("  Enter    ", Style::default().fg(theme.accent)),
             Span::raw("Toggle detail panel (pretty JSON)"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Analysis",
+            Style::default()
+                .fg(theme.duplicate)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  D        ", Style::default().fg(theme.duplicate)),
+            Span::raw("Toggle dedup scan (SimHash)"),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -342,7 +401,14 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) 
     } else {
         ""
     };
-    let title = format!(" Record {}{} ", app.selected_line + 1, mode_label);
+
+    let dup_label = if app.line_is_duplicate(app.selected_line) {
+        " [DUPLICATE]"
+    } else {
+        ""
+    };
+
+    let title = format!(" Record {}{}{} ", app.selected_line + 1, mode_label, dup_label);
 
     let paragraph = Paragraph::new(lines)
         .block(

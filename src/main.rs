@@ -1,16 +1,8 @@
 //! Caret - A blazingly fast TUI for inspecting LLM datasets
 //!
 //! Provides instant file opening for massive JSONL, Parquet, and CSV files,
-//! token visualization, and reasoning data validation.
-
-mod app;
-mod data;
-mod fixer;
-mod format;
-mod linter;
-mod tokenizer;
-mod tui;
-mod ui;
+//! token visualization, reasoning data validation, and SIMD-accelerated
+//! near-duplicate detection.
 
 use anyhow::{Context, Result};
 use argh::FromArgs;
@@ -20,13 +12,15 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use app::App;
-use data::Dataset;
-use fixer::{FixResult, Fixer, FixSummary};
-use format::InputFormat;
-use linter::Linter;
-use tokenizer::{TiktokenEncoding, TokenizerType, TokenizerWrapper};
-use tui::Tui;
+use caret::app::App;
+use caret::data::Dataset;
+use caret::engine::{DedupEngine, DedupStrategy};
+use caret::fixer::{FixResult, Fixer, FixSummary};
+use caret::format::InputFormat;
+use caret::linter::Linter;
+use caret::tokenizer::{TiktokenEncoding, TokenizerType, TokenizerWrapper};
+use caret::tui::Tui;
+use caret::ui;
 
 /// Caret - Blazingly fast TUI for LLM dataset curation
 #[derive(FromArgs)]
@@ -78,6 +72,22 @@ struct Args {
     /// fix in place (overwrite original file) - USE WITH CAUTION
     #[argh(switch)]
     fix_in_place: bool,
+
+    /// run dedup scan (near-duplicate detection)
+    #[argh(switch)]
+    dedup: bool,
+
+    /// dedup strategy: exact, simhash (default: simhash)
+    #[argh(option, default = "String::from(\"simhash\")")]
+    dedup_strategy: String,
+
+    /// simhash hamming distance threshold (0=exact hash, 3=fuzzy, 5=aggressive; default: 3)
+    #[argh(option, default = "3")]
+    dedup_threshold: u32,
+
+    /// export deduplicated dataset to this path
+    #[argh(option)]
+    dedup_export: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -88,23 +98,23 @@ fn main() -> Result<()> {
         InputFormat::detect(&args.file)
     } else {
         InputFormat::from_str(&args.format).unwrap_or_else(|| {
-            eprintln!("⚠ Unknown format '{}', using auto-detect", args.format);
+            eprintln!("Warning: Unknown format '{}', using auto-detect", args.format);
             InputFormat::detect(&args.file)
         })
     };
 
     // Load the dataset - support stdin with "-"
     let dataset = if args.file == "-" {
-        eprintln!("📂 Reading from stdin...");
+        eprintln!("Reading from stdin...");
         let dataset = Dataset::from_stdin().with_context(|| "Failed to read from stdin")?;
         eprintln!(
-            "✓ Loaded {} lines ({}) from stdin",
+            "Loaded {} lines ({}) from stdin",
             dataset.line_count(),
             dataset.size_human()
         );
         dataset
     } else {
-        eprintln!("📂 Opening {} as {}...", args.file, match input_format {
+        eprintln!("Opening {} as {}...", args.file, match input_format {
             InputFormat::Jsonl => "JSONL",
             InputFormat::Parquet => "Parquet",
             InputFormat::Csv => "CSV",
@@ -112,7 +122,7 @@ fn main() -> Result<()> {
         let dataset = Dataset::open_with_format(&args.file, input_format)
             .with_context(|| format!("Failed to open dataset: {}", args.file))?;
         eprintln!(
-            "✓ Loaded {} lines ({}) as {}",
+            "Loaded {} lines ({}) as {}",
             dataset.line_count(),
             dataset.size_human(),
             dataset.format_name()
@@ -126,14 +136,14 @@ fn main() -> Result<()> {
     // Load tokenizer if requested
     if let Some(ref tokenizer_path) = args.tokenizer_path {
         // Custom tokenizer path takes priority
-        eprintln!("🔤 Loading tokenizer from {}...", tokenizer_path);
+        eprintln!("Loading tokenizer from {}...", tokenizer_path);
         match TokenizerWrapper::from_file(tokenizer_path) {
             Ok(tokenizer) => {
-                eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                eprintln!("Tokenizer loaded: {}", tokenizer.name);
                 app = app.with_tokenizer(tokenizer);
             }
             Err(e) => {
-                eprintln!("⚠ Failed to load tokenizer: {}", e);
+                eprintln!("Failed to load tokenizer: {}", e);
             }
         }
     } else if args.tokenizer {
@@ -145,39 +155,39 @@ fn main() -> Result<()> {
             TokenizerType::Tiktoken => {
                 let encoding = TiktokenEncoding::from_str(&args.tiktoken_encoding)
                     .unwrap_or(TiktokenEncoding::Cl100kBase);
-                eprintln!("🔤 Loading Tiktoken tokenizer ({:?})...", encoding);
+                eprintln!("Loading Tiktoken tokenizer ({:?})...", encoding);
                 match TokenizerWrapper::from_tiktoken(encoding) {
                     Ok(tokenizer) => {
-                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        eprintln!("Tokenizer loaded: {}", tokenizer.name);
                         app = app.with_tokenizer(tokenizer);
                     }
                     Err(e) => {
-                        eprintln!("⚠ Failed to load Tiktoken tokenizer: {}", e);
+                        eprintln!("Failed to load Tiktoken tokenizer: {}", e);
                     }
                 }
             }
             TokenizerType::HuggingFace => {
-                eprintln!("🔤 Loading HuggingFace tokenizer (Llama 3.1)...");
+                eprintln!("Loading HuggingFace tokenizer (Llama 3.1)...");
                 match TokenizerWrapper::from_pretrained("meta-llama/Llama-3.1-8B") {
                     Ok(tokenizer) => {
-                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        eprintln!("Tokenizer loaded: {}", tokenizer.name);
                         app = app.with_tokenizer(tokenizer);
                     }
                     Err(e) => {
-                        eprintln!("⚠ Failed to load tokenizer: {}", e);
+                        eprintln!("Failed to load tokenizer: {}", e);
                         eprintln!("  Tip: You may need to accept Llama 3.1's license");
                     }
                 }
             }
             TokenizerType::Gpt2 => {
-                eprintln!("🔤 Loading GPT-2 tokenizer (legacy)...");
+                eprintln!("Loading GPT-2 tokenizer (legacy)...");
                 match TokenizerWrapper::from_pretrained("gpt2") {
                     Ok(tokenizer) => {
-                        eprintln!("✓ Tokenizer loaded: {}", tokenizer.name);
+                        eprintln!("Tokenizer loaded: {}", tokenizer.name);
                         app = app.with_tokenizer(tokenizer);
                     }
                     Err(e) => {
-                        eprintln!("⚠ Failed to load GPT-2 tokenizer: {}", e);
+                        eprintln!("Failed to load GPT-2 tokenizer: {}", e);
                     }
                 }
             }
@@ -186,20 +196,25 @@ fn main() -> Result<()> {
 
     // Run linter if requested
     if args.lint {
-        eprintln!("🔍 Running linter...");
+        eprintln!("Running linter...");
         let mut linter = Linter::new();
         if let Some(ref keys) = args.required_keys {
             let keys: Vec<String> = keys.split(',').map(|s| s.trim().to_string()).collect();
             linter = linter.with_required_keys(keys);
         }
         let results = linter.lint_dataset(&app.dataset);
-        eprintln!("✓ Found {} issues", results.len());
+        eprintln!("Found {} issues", results.len());
         app = app.with_lint_results(results);
     }
 
     // Run fix mode if requested (headless, no TUI)
     if args.fix {
         return run_fix_mode(&args, &app.dataset);
+    }
+
+    // Run dedup mode if requested (headless, no TUI)
+    if args.dedup {
+        return run_dedup_mode(&args, &app.dataset);
     }
 
     // Initialize TUI
@@ -259,6 +274,11 @@ fn main() -> Result<()> {
                         app.toggle_detail();
                     }
 
+                    // Toggle dedup scan (Shift+D)
+                    (KeyCode::Char('D'), _) => {
+                        app.toggle_dedup();
+                    }
+
                     // Toggle help
                     (KeyCode::Char('?'), _) => {
                         app.show_help = !app.show_help;
@@ -280,18 +300,59 @@ fn main() -> Result<()> {
 
     // Cleanup
     tui.restore()?;
-    eprintln!("👋 Goodbye!");
+    eprintln!("Goodbye!");
+
+    Ok(())
+}
+
+/// Run dedup mode (headless, no TUI)
+fn run_dedup_mode(args: &Args, dataset: &Dataset) -> Result<()> {
+    let strategy = match args.dedup_strategy.as_str() {
+        "exact" => DedupStrategy::Exact,
+        _ => DedupStrategy::SimHash {
+            threshold: args.dedup_threshold,
+        },
+    };
+
+    eprintln!("Running dedup scan ({})...", strategy);
+    let engine = DedupEngine::new(strategy);
+    let result = engine.scan(dataset);
+
+    eprintln!("\nDedup Results:");
+    eprintln!("   {}", result.summary());
+
+    // Export deduplicated dataset if requested
+    if let Some(ref export_path) = args.dedup_export {
+        eprintln!("\nExporting deduplicated dataset to {}...", export_path);
+
+        let file = File::create(export_path)
+            .with_context(|| format!("Failed to create export file: {}", export_path))?;
+        let mut writer = BufWriter::new(file);
+
+        let mut exported = 0usize;
+        for i in 0..dataset.line_count() {
+            if !result.is_duplicate(i) {
+                if let Some(line) = dataset.get_line(i) {
+                    writeln!(writer, "{}", line)?;
+                    exported += 1;
+                }
+            }
+        }
+
+        writer.flush()?;
+        eprintln!("Exported {} unique lines to {}", exported, export_path);
+    }
 
     Ok(())
 }
 
 /// Run fix mode (headless, no TUI)
 fn run_fix_mode(args: &Args, dataset: &Dataset) -> Result<()> {
-    eprintln!("🔧 Running fix mode...");
+    eprintln!("Running fix mode...");
 
     // Determine output path
     let output_path = if args.fix_in_place {
-        eprintln!("⚠️  WARNING: Fixing in place will overwrite the original file!");
+        eprintln!("WARNING: Fixing in place will overwrite the original file!");
         args.file.clone()
     } else if let Some(ref path) = args.fix_output {
         path.clone()
@@ -338,11 +399,11 @@ fn run_fix_mode(args: &Args, dataset: &Dataset) -> Result<()> {
                 FixResult::Skipped(reason) => {
                     summary.record_skipped();
                     if args.skip_invalid {
-                        eprintln!("⚠ Line {}: {} (skipped)", i + 1, reason.description());
+                        eprintln!("Line {}: {} (skipped)", i + 1, reason.description());
                     } else {
                         // Write original line even if invalid (preserve data)
                         writeln!(writer, "{}", line)?;
-                        eprintln!("⚠ Line {}: {} (kept as-is)", i + 1, reason.description());
+                        eprintln!("Line {}: {} (kept as-is)", i + 1, reason.description());
                     }
                 }
             }
@@ -358,20 +419,20 @@ fn run_fix_mode(args: &Args, dataset: &Dataset) -> Result<()> {
     }
 
     // Print summary
-    eprintln!("\n📊 Fix Summary:");
+    eprintln!("\nFix Summary:");
     eprintln!("   Total lines:     {}", summary.total_lines);
     eprintln!("   Fixed lines:     {}", summary.fixed_lines);
     eprintln!("   Unchanged lines: {}", summary.unchanged_lines);
     eprintln!("   Skipped lines:   {}", summary.skipped_lines);
 
     if !summary.fixes_by_type.is_empty() {
-        eprintln!("\n📝 Fixes applied:");
+        eprintln!("\nFixes applied:");
         for (fix_type, count) in &summary.fixes_by_type {
             eprintln!("   {} x{}", fix_type, count);
         }
     }
 
-    eprintln!("\n✅ Output written to: {}", output_path);
+    eprintln!("\nOutput written to: {}", output_path);
 
     Ok(())
 }

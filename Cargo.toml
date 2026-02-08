@@ -1,6 +1,6 @@
 [package]
 name = "caret"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A blazingly fast TUI for inspecting and curating LLM training datasets"
 authors = ["Caret Contributors"]
@@ -22,6 +22,9 @@ argh = "0.1.13"
 anyhow = "1.0"
 regex = "1.10"
 lru = "0.12"
+
+# Concurrent deduplication engine
+rayon = "1.10"
 
 # Multi-format support
 parquet = { version = "54", default-features = false, features = ["arrow", "snap", "zstd", "lz4"] }

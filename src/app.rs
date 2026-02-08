@@ -1,6 +1,7 @@
 //! Caret - Application state management
 
 use crate::data::Dataset;
+use crate::engine::{DedupEngine, DedupResult, DedupStrategy};
 use crate::linter::LintResult;
 use crate::tokenizer::TokenizerWrapper;
 
@@ -47,6 +48,8 @@ pub struct App {
     pub tokenizer: Option<TokenizerWrapper>,
     /// Lint results for the current dataset
     pub lint_results: Vec<LintResult>,
+    /// Deduplication scan results (None if no scan has been run)
+    pub dedup_result: Option<DedupResult>,
     /// Whether to show the help popup
     pub show_help: bool,
     /// Whether the app should quit
@@ -70,6 +73,7 @@ impl App {
             view_mode: ViewMode::Text,
             tokenizer: None,
             lint_results: Vec::new(),
+            dedup_result: None,
             show_help: false,
             should_quit: false,
             selected_line: 0,
@@ -81,6 +85,17 @@ impl App {
     /// Toggle detail panel visibility
     pub fn toggle_detail(&mut self) {
         self.show_detail = !self.show_detail;
+    }
+
+    /// Toggle dedup scan: run if no result, clear if already scanned.
+    pub fn toggle_dedup(&mut self) {
+        if self.dedup_result.is_some() {
+            self.dedup_result = None;
+        } else {
+            let engine = DedupEngine::new(DedupStrategy::SimHash { threshold: 3 });
+            let result = engine.scan(&self.dataset);
+            self.dedup_result = Some(result);
+        }
     }
 
     /// Get the current line content
@@ -154,6 +169,14 @@ impl App {
     /// Check if a line has lint errors
     pub fn line_has_error(&self, line_index: usize) -> bool {
         self.lint_results.iter().any(|r| r.line == line_index)
+    }
+
+    /// Check if a line is a duplicate (per dedup scan)
+    pub fn line_is_duplicate(&self, line_index: usize) -> bool {
+        self.dedup_result
+            .as_ref()
+            .map(|r| r.is_duplicate(line_index))
+            .unwrap_or(false)
     }
 
     /// Get lint error for a specific line
