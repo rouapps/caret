@@ -239,7 +239,7 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
 
     let mut spans = vec![
         Span::styled(
-            " Caret v0.3.0 ",
+            concat!(" Caret v", env!("CARGO_PKG_VERSION"), " "),
             Style::default()
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),

@@ -156,7 +156,7 @@ impl HfStreamReader {
     /// Discover the remote Parquet file URL and fetch its size.
     pub async fn connect(target: &HfTarget) -> Result<Self> {
         let client = Client::builder()
-            .user_agent("caret/0.3.0")
+            .user_agent(concat!("caret/", env!("CARGO_PKG_VERSION")))
             .build()?;
 
         // Step 1: Discover available Parquet files via the datasets-server API

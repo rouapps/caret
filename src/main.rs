@@ -270,47 +270,31 @@ fn main() -> Result<()> {
     };
 
     if mcp_port > 0 || args.mcp_only {
-        let dataset_arc = Arc::new(Dataset::from_raw_parts(
-            // Re-create from the app's dataset by reading all lines.
-            // This is a one-time cost to share data with the async MCP server.
-            {
-                let mut buf = Vec::new();
-                for i in 0..app.dataset.line_count() {
-                    if let Some(line) = app.dataset.get_line(i) {
-                        buf.extend_from_slice(line.as_bytes());
-                        buf.push(b'\n');
-                    }
+        // Snapshot the dataset into an Arc for the async MCP server.
+        // One-time copy cost — the server then holds a read-only reference.
+        let dataset_arc = {
+            let mut buf = Vec::new();
+            for i in 0..app.dataset.line_count() {
+                if let Some(line) = app.dataset.get_line(i) {
+                    buf.extend_from_slice(line.as_bytes());
+                    buf.push(b'\n');
                 }
-                let mut offsets = vec![0usize];
-                for (i, &b) in buf.iter().enumerate() {
-                    if b == b'\n' && i + 1 < buf.len() {
-                        offsets.push(i + 1);
-                    }
+            }
+            let mut offsets = vec![0usize];
+            for (i, &b) in buf.iter().enumerate() {
+                if b == b'\n' && i + 1 < buf.len() {
+                    offsets.push(i + 1);
                 }
-                // Store offsets alongside buffer
-                // We'll construct the full Dataset below
-                buf
-            },
-            {
-                let mut buf = Vec::new();
-                for i in 0..app.dataset.line_count() {
-                    if let Some(line) = app.dataset.get_line(i) {
-                        buf.extend_from_slice(line.as_bytes());
-                        buf.push(b'\n');
-                    }
-                }
-                let mut offsets = vec![0usize];
-                for (i, &b) in buf.iter().enumerate() {
-                    if b == b'\n' && i + 1 < buf.len() {
-                        offsets.push(i + 1);
-                    }
-                }
-                offsets
-            },
-            app.dataset.path.clone(),
-            app.dataset.size,
-            app.dataset.format,
-        ));
+            }
+            let size = buf.len() as u64;
+            Arc::new(Dataset::from_raw_parts(
+                buf,
+                offsets,
+                app.dataset.path.clone(),
+                size,
+                app.dataset.format,
+            ))
+        };
 
         let dataset_path = app.dataset.path.clone();
         let port = if mcp_port > 0 { mcp_port } else { 3100 };

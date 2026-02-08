@@ -1,6 +1,5 @@
 # Build artifacts
 /target/
-Cargo.lock
 
 # IDE
 .idea/
@@ -13,6 +12,11 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
-# Data files (test datasets)
+# Data files (test datasets — don't commit large datasets)
 *.jsonl
 *.parquet
+*.csv
+!benchmark_vs_pandas.py
+
+# Benchmark output
+benchmark_data*
