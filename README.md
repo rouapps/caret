@@ -147,24 +147,6 @@ caret data.jsonl --fix --fix-in-place                 # Overwrite original
 cat data.jsonl | caret -
 ```
 
-## Benchmarks
-
-These numbers are from a single machine (Apple M-series) and should be taken as rough indicators, not absolute claims. Run the benchmarks yourself to see how Caret performs on your hardware:
-
-```bash
-pip install pandas datasets psutil
-cargo build --release
-python benchmark_vs_pandas.py --size-gb 10
-```
-
-| Metric | Caret | pandas | HF Datasets |
-|--------|-------|--------|-------------|
-| Time to first line | 3 ms | 45 s | 12 s |
-| Peak memory (RSS) | ~50 MB | 28 GB | 15 GB |
-| Dedup 10GB | 8 s | OOM | OOM |
-
-The large gap on file open comes from mmap vs. full parse -- Caret doesn't read the file, it maps it. Dedup performance comes from SIMD-accelerated Hamming distance on the fingerprints. pandas and HF Datasets were measured on a 50K-line sample for the dedup comparison because they OOM on the full file.
-
 ## Architecture
 
 ```

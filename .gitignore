@@ -20,5 +20,3 @@ Thumbs.db
 # Local docs (do not commit)
 DEEP_DIVE.md
 
-# Benchmark output
-benchmark_data*
