@@ -16,7 +16,9 @@ Thumbs.db
 *.jsonl
 *.parquet
 *.csv
-!benchmark_vs_pandas.py
+
+# Local docs (do not commit)
+DEEP_DIVE.md
 
 # Benchmark output
 benchmark_data*
