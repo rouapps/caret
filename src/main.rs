@@ -326,7 +326,7 @@ fn main() -> Result<()> {
 }
 
 /// Run TUI with MCP command channel
-fn run_tui_with_mcp(mut tui: Tui, mut app: App, tui_rx: TuiCommandReceiver) -> Result<()> {
+fn run_tui_with_mcp(tui: Tui, app: App, tui_rx: TuiCommandReceiver) -> Result<()> {
     run_tui_loop(tui, app, Some(tui_rx))
 }
 
