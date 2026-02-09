@@ -373,34 +373,20 @@ fn render_help_popup(frame: &mut Frame, theme: &Theme) {
 }
 
 /// Render the detail panel showing pretty-printed JSON
-fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) {
+fn render_detail_panel(frame: &mut Frame, app: &mut App, area: Rect, theme: &Theme) {
+    // In Token X-Ray mode with tokenizer, show hover-style token details
+    if app.view_mode == ViewMode::TokenXray && app.tokenizer.is_some() {
+        render_token_xray_hover(frame, app, area, theme);
+        return;
+    }
+
     let pretty_json = app.current_line_pretty();
 
-    // Split lines for display - apply tokenization if in TOKEN X-RAY mode
-    let lines: Vec<Line> = if app.view_mode == ViewMode::TokenXray {
-        if let Some(ref tokenizer) = app.tokenizer {
-            pretty_json
-                .lines()
-                .map(|line| tokenizer.colorize_tokens(line))
-                .collect()
-        } else {
-            pretty_json
-                .lines()
-                .map(|line| highlight_json(line, theme))
-                .collect()
-        }
-    } else {
-        pretty_json
-            .lines()
-            .map(|line| highlight_json(line, theme))
-            .collect()
-    };
-
-    let mode_label = if app.view_mode == ViewMode::TokenXray && app.tokenizer.is_some() {
-        " (tokenized)"
-    } else {
-        ""
-    };
+    // Default: show pretty JSON with syntax highlighting
+    let lines: Vec<Line> = pretty_json
+        .lines()
+        .map(|line| highlight_json(line, theme))
+        .collect();
 
     let dup_label = if app.line_is_duplicate(app.selected_line) {
         " [DUPLICATE]"
@@ -408,7 +394,7 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) 
         ""
     };
 
-    let title = format!(" Record {}{}{} ", app.selected_line + 1, mode_label, dup_label);
+    let title = format!(" Record {}{} ", app.selected_line + 1, dup_label);
 
     let paragraph = Paragraph::new(lines)
         .block(
@@ -421,6 +407,166 @@ fn render_detail_panel(frame: &mut Frame, app: &App, area: Rect, theme: &Theme) 
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
+}
+
+/// Render token X-Ray with hover-style details (selected token info at bottom)
+fn render_token_xray_hover(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    theme: &Theme,
+) {
+    use crate::tokenizer::TokenInfo;
+
+    // Color palette for tokens
+    const TOKEN_COLORS: [Color; 4] = [
+        Color::Rgb(70, 130, 180),  // Steel Blue
+        Color::Rgb(60, 60, 60),    // Dark Gray
+        Color::Rgb(100, 149, 237), // Cornflower Blue
+        Color::Rgb(80, 80, 80),    // Medium Gray
+    ];
+    const HIGHLIGHT_COLOR: Color = Color::Rgb(255, 200, 50); // Gold for selected
+
+    // Collect all data we need from app first (before mutation)
+    let (all_tokens, pretty_json, line_tokenizations): (Vec<TokenInfo>, String, Vec<Vec<TokenInfo>>) = {
+        let tokenizer = app.tokenizer.as_ref().unwrap();
+        let pretty_json = app.current_line_pretty();
+        let raw_line = app.current_line_content().unwrap_or("").to_string();
+        
+        // Get all tokens from raw line for the status bar
+        let all_tokens = tokenizer.get_token_details(&raw_line);
+        
+        // Pre-tokenize each JSON line for display
+        let line_tokenizations: Vec<Vec<TokenInfo>> = pretty_json
+            .lines()
+            .map(|line| tokenizer.get_token_details(line))
+            .collect();
+        
+        (all_tokens, pretty_json, line_tokenizations)
+    };
+    
+    // Now we can mutate app safely
+    app.set_token_count(all_tokens.len());
+
+    // Get the selected token info (if any)
+    let selected_info: Option<&TokenInfo> = all_tokens.get(app.selected_token);
+
+    // Split area: main content + status line at bottom
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(3)])
+        .split(area);
+
+    // === Render main content area with colored tokens ===
+    let mut lines = Vec::new();
+    
+    // Header
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("TOKEN X-RAY: "),
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("←/→ navigate ({}/{})", app.selected_token + 1, all_tokens.len().max(1)),
+            Style::default().fg(theme.muted),
+        ),
+    ]));
+    lines.push(Line::from(""));
+
+    // Show each JSON line with tokenization
+    for (json_line, line_tokens) in pretty_json.lines().zip(line_tokenizations.iter()) {
+        if line_tokens.is_empty() {
+            lines.push(highlight_json(json_line, theme));
+            continue;
+        }
+
+        let mut spans = Vec::new();
+        for (i, token) in line_tokens.iter().enumerate() {
+            // Check if this token matches the selected one (by position in raw line)
+            let is_selected = selected_info.map_or(false, |sel| {
+                token.byte_start == sel.byte_start && token.byte_end == sel.byte_end
+            });
+
+            let bg_color = if is_selected {
+                HIGHLIGHT_COLOR
+            } else {
+                TOKEN_COLORS[i % TOKEN_COLORS.len()]
+            };
+
+            let fg_color = if is_selected {
+                Color::Black
+            } else {
+                Color::White
+            };
+
+            spans.push(Span::styled(
+                token.text.clone(),
+                Style::default().bg(bg_color).fg(fg_color),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    let dup_label = if app.line_is_duplicate(app.selected_line) {
+        " [DUP]"
+    } else {
+        ""
+    };
+
+    let main_content = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    format!(" Record {}{} ", app.selected_line + 1, dup_label),
+                    Style::default().fg(theme.accent),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.bg)),
+        )
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(main_content, chunks[0]);
+
+    // === Render token detail status line at bottom ===
+    let detail_line = if let Some(tok) = selected_info {
+        Line::from(vec![
+            Span::styled(" Token: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                format!("\"{}\"", tok.text.replace('\n', "\\n").replace('\t', "\\t")),
+                Style::default().fg(HIGHLIGHT_COLOR).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" │ ID: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                format!("{}", tok.token_id),
+                Style::default().fg(theme.accent),
+            ),
+            Span::styled(" │ Bytes: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                format!("{}-{}", tok.byte_start, tok.byte_end),
+                Style::default().fg(theme.accent),
+            ),
+            Span::styled(
+                format!(" ({} bytes)", tok.byte_end - tok.byte_start),
+                Style::default().fg(theme.muted),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled(
+            " No tokens",
+            Style::default().fg(theme.muted),
+        ))
+    };
+
+    let status_bar = Paragraph::new(detail_line)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .style(Style::default().bg(theme.bg)),
+        );
+
+    frame.render_widget(status_bar, chunks[1]);
 }
 
 /// Basic JSON syntax highlighting

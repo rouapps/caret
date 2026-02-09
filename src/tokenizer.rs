@@ -80,6 +80,19 @@ enum TokenizerBackend {
     HuggingFace(Box<tokenizers::Tokenizer>),
 }
 
+/// Detailed token information for debugging BPE merges
+#[derive(Debug, Clone)]
+pub struct TokenInfo {
+    /// Token vocabulary ID
+    pub token_id: u32,
+    /// Byte offset start (inclusive)
+    pub byte_start: usize,
+    /// Byte offset end (exclusive)
+    pub byte_end: usize,
+    /// Decoded token text
+    pub text: String,
+}
+
 /// Wrapper around tokenizers with LRU cache for performance
 pub struct TokenizerWrapper {
     backend: TokenizerBackend,
@@ -259,6 +272,63 @@ impl TokenizerWrapper {
                     .encode(text, false)
                     .map(|e| e.get_ids().to_vec())
                     .unwrap_or_default()
+            }
+        }
+    }
+
+    /// Get detailed token information including byte offsets and token IDs.
+    /// Useful for debugging BPE merge issues and understanding tokenization.
+    pub fn get_token_details(&self, text: &str) -> Vec<TokenInfo> {
+        match &self.backend {
+            TokenizerBackend::Tiktoken(bpe) => {
+                let tokens = bpe.encode_with_special_tokens(text);
+                let mut details = Vec::with_capacity(tokens.len());
+                let mut current_pos = 0;
+
+                for token_id in tokens {
+                    if let Ok(token_str) = bpe.decode(vec![token_id]) {
+                        let token_len = token_str.len();
+                        let end_pos = current_pos + token_len;
+                        
+                        // Get the text representation from original text if possible
+                        let token_text = if let Some(t) = text.get(current_pos..end_pos) {
+                            t.to_string()
+                        } else {
+                            // Fallback: use the decoded string
+                            token_str
+                        };
+
+                        details.push(TokenInfo {
+                            token_id,
+                            byte_start: current_pos,
+                            byte_end: end_pos,
+                            text: token_text,
+                        });
+
+                        current_pos = end_pos;
+                    }
+                }
+                details
+            }
+            TokenizerBackend::HuggingFace(tokenizer) => {
+                if let Ok(encoding) = tokenizer.encode(text, false) {
+                    let ids = encoding.get_ids();
+                    let offsets = encoding.get_offsets();
+                    let tokens = encoding.get_tokens();
+
+                    ids.iter()
+                        .zip(offsets.iter())
+                        .zip(tokens.iter())
+                        .map(|((&id, &(start, end)), token)| TokenInfo {
+                            token_id: id,
+                            byte_start: start,
+                            byte_end: end,
+                            text: token.clone(),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
             }
         }
     }

@@ -61,6 +61,10 @@ pub struct App {
     /// Tree expansion state for JSON tree view
     #[allow(dead_code)]
     pub tree_expanded: std::collections::HashSet<String>,
+    /// Currently selected token index in Token X-Ray mode (for hover details)
+    pub selected_token: usize,
+    /// Total token count for current line (cached for navigation bounds)
+    pub token_count: usize,
 }
 
 impl App {
@@ -79,6 +83,8 @@ impl App {
             selected_line: 0,
             show_detail: false,
             tree_expanded: std::collections::HashSet::new(),
+            selected_token: 0,
+            token_count: 0,
         }
     }
 
@@ -148,18 +154,21 @@ impl App {
         self.scroll = (self.scroll + n).min(max_scroll);
         self.selected_line =
             (self.selected_line + n).min(self.dataset.line_count().saturating_sub(1));
+        self.selected_token = 0; // Reset token selection when changing lines
     }
 
     /// Scroll up by n lines
     pub fn scroll_up(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_sub(n);
         self.selected_line = self.selected_line.saturating_sub(n);
+        self.selected_token = 0; // Reset token selection when changing lines
     }
 
     /// Jump to the beginning
     pub fn goto_top(&mut self) {
         self.scroll = 0;
         self.selected_line = 0;
+        self.selected_token = 0;
     }
 
     /// Jump to the end
@@ -170,6 +179,7 @@ impl App {
             .saturating_sub(self.viewport_height);
         self.scroll = max_scroll;
         self.selected_line = self.dataset.line_count().saturating_sub(1);
+        self.selected_token = 0;
     }
 
     /// Update viewport height based on terminal size
@@ -194,5 +204,31 @@ impl App {
     #[allow(dead_code)]
     pub fn get_lint_error(&self, line_index: usize) -> Option<&LintResult> {
         self.lint_results.iter().find(|r| r.line == line_index)
+    }
+
+    /// Navigate to the next token in Token X-Ray mode
+    pub fn next_token(&mut self) {
+        if self.token_count > 0 {
+            self.selected_token = (self.selected_token + 1) % self.token_count;
+        }
+    }
+
+    /// Navigate to the previous token in Token X-Ray mode
+    pub fn prev_token(&mut self) {
+        if self.token_count > 0 {
+            self.selected_token = if self.selected_token == 0 {
+                self.token_count.saturating_sub(1)
+            } else {
+                self.selected_token - 1
+            };
+        }
+    }
+
+    /// Update token count (called by UI when tokenizing current line)
+    pub fn set_token_count(&mut self, count: usize) {
+        self.token_count = count;
+        if self.selected_token >= count {
+            self.selected_token = 0;
+        }
     }
 }

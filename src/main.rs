@@ -402,6 +402,18 @@ fn run_tui_loop(mut tui: Tui, mut app: App, mut tui_rx: Option<TuiCommandReceive
                         app.show_help = !app.show_help;
                     }
 
+                    // Token navigation in X-Ray mode (←/→)
+                    (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
+                        if app.view_mode == ViewMode::TokenXray && app.show_detail {
+                            app.prev_token();
+                        }
+                    }
+                    (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
+                        if app.view_mode == ViewMode::TokenXray && app.show_detail {
+                            app.next_token();
+                        }
+                    }
+
                     _ => {}
                 }
             }
