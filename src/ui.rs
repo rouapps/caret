@@ -463,7 +463,7 @@ fn render_token_xray_hover(
     // Header
     lines.push(Line::from(vec![
         Span::styled(
-            format!("TOKEN X-RAY: "),
+            "TOKEN X-RAY: ".to_string(),
             Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -483,7 +483,7 @@ fn render_token_xray_hover(
         let mut spans = Vec::new();
         for (i, token) in line_tokens.iter().enumerate() {
             // Check if this token matches the selected one (by position in raw line)
-            let is_selected = selected_info.map_or(false, |sel| {
+            let is_selected = selected_info.is_some_and(|sel| {
                 token.byte_start == sel.byte_start && token.byte_end == sel.byte_end
             });
 
