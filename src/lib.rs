@@ -12,6 +12,7 @@
 //!   Hugging Face Hub using HTTP Range requests — no full download needed.
 
 pub mod app;
+pub mod commands;
 pub mod data;
 pub mod engine;
 pub mod fixer;

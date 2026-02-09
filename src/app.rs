@@ -3,7 +3,7 @@
 use crate::data::Dataset;
 use crate::engine::{DedupEngine, DedupResult, DedupStrategy};
 use crate::linter::LintResult;
-use crate::tokenizer::TokenizerWrapper;
+use crate::tokenizer::{TiktokenEncoding, TokenizerWrapper};
 
 /// View mode for the main display
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,17 @@ impl App {
             show_detail: false,
             tree_expanded: std::collections::HashSet::new(),
         }
+    }
+
+    /// Toggle view mode, lazily loading the tokenizer when switching to Token X-Ray
+    pub fn toggle_view_mode(&mut self) {
+        // If switching from Text to TokenXray, lazily load tokenizer
+        if self.view_mode == ViewMode::Text && self.tokenizer.is_none() {
+            if let Ok(tokenizer) = TokenizerWrapper::from_tiktoken(TiktokenEncoding::Cl100kBase) {
+                self.tokenizer = Some(tokenizer);
+            }
+        }
+        self.view_mode.toggle();
     }
 
     /// Toggle detail panel visibility

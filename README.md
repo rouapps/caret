@@ -47,11 +47,16 @@ Caret implements the [Model Context Protocol](https://modelcontextprotocol.io/),
 | `dataset_info` | Line count, file size, format metadata |
 | `get_lines` | Random access to any line range |
 | `dedup_scan` | SimHash dedup with statistics |
+| `jump_to_line` | Navigate TUI to a specific line |
+| `toggle_view` | Cycle view mode (Text / Token X-Ray / Tree) |
+| `show_detail` | Show/hide detail panel |
 
 ```bash
 caret data.jsonl --mcp-port 3100          # TUI + MCP server
 caret data.jsonl --mcp-only               # Headless (for CI/pipelines)
 ```
+
+The TUI control tools (`jump_to_line`, `toggle_view`, `show_detail`) allow AI assistants to interactively navigate the dataset while you watch — ask Claude or Gemini to "jump to line 500 and show the tokens" and the TUI responds instantly.
 
 To use with Claude Desktop, add to `claude_desktop_config.json`:
 

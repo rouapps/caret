@@ -20,3 +20,7 @@ Thumbs.db
 # Local docs (do not commit)
 DEEP_DIVE.md
 
+# Python caches
+__pycache__/
+*.py[cod]
+

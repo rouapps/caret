@@ -41,6 +41,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
+use crate::commands::{TuiCommand, TuiCommandSender};
 use crate::data::Dataset;
 use crate::engine::{DedupEngine, DedupStrategy};
 
@@ -171,6 +172,8 @@ struct ContentBlock {
 pub struct McpState {
     pub dataset: Arc<Dataset>,
     pub dataset_path: String,
+    /// Optional channel to send commands to the TUI
+    pub tui_tx: Option<TuiCommandSender>,
 }
 
 pub type SharedMcpState = Arc<RwLock<McpState>>;
@@ -186,10 +189,12 @@ pub async fn start_mcp_server(
     dataset: Arc<Dataset>,
     dataset_path: String,
     port: u16,
+    tui_tx: Option<TuiCommandSender>,
 ) -> Result<()> {
     let state: SharedMcpState = Arc::new(RwLock::new(McpState {
         dataset,
         dataset_path,
+        tui_tx,
     }));
 
     let app = Router::new()
@@ -341,6 +346,50 @@ fn handle_tools_list(id: Option<serde_json::Value>) -> JsonRpcResponse {
                 }
             }),
         },
+        // ─── TUI Control Tools ─────────────────────────────────────────────
+        ToolDescriptor {
+            name: "jump_to_line".into(),
+            description: "Navigate the Caret TUI to a specific line number. \
+                          The TUI will scroll to center the line on screen. \
+                          Use this to let the user browse interactively."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "line": {
+                        "type": "integer",
+                        "description": "Line number to jump to (1-based for user convenience)"
+                    }
+                },
+                "required": ["line"]
+            }),
+        },
+        ToolDescriptor {
+            name: "toggle_view".into(),
+            description: "Toggle the TUI view mode: Text → Token X-Ray → Tree → Text. \
+                          Token X-Ray shows tokenization boundaries with colors."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDescriptor {
+            name: "show_detail".into(),
+            description: "Show or hide the detail panel for the current line in the TUI. \
+                          When shown, displays the full JSON content pretty-printed."
+                .into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "show": {
+                        "type": "boolean",
+                        "description": "True to show detail panel, false to hide",
+                        "default": true
+                    }
+                }
+            }),
+        },
     ];
 
     JsonRpcResponse::success(
@@ -369,6 +418,10 @@ async fn handle_tools_call(
         "dataset_info" => tool_dataset_info(id, state).await,
         "get_lines" => tool_get_lines(id, arguments, state).await,
         "dedup_scan" => tool_dedup_scan(id, arguments, state).await,
+        // TUI control tools
+        "jump_to_line" => tool_jump_to_line(id, arguments, state).await,
+        "toggle_view" => tool_toggle_view(id, state).await,
+        "show_detail" => tool_show_detail(id, arguments, state).await,
         _ => JsonRpcResponse::error(
             id,
             -32602,
@@ -726,6 +779,111 @@ async fn handle_resources_read(
     JsonRpcResponse::success(
         id,
         serde_json::json!({ "contents": contents }),
+    )
+}
+
+// ─── TUI Control Tools ──────────────────────────────────────────────────────
+
+/// `jump_to_line` — navigate TUI to a specific line
+async fn tool_jump_to_line(
+    id: Option<serde_json::Value>,
+    args: serde_json::Value,
+    state: &SharedMcpState,
+) -> JsonRpcResponse {
+    let line = args
+        .get("line")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as usize;
+    
+    // Convert 1-based (user-friendly) to 0-based
+    let line_index = line.saturating_sub(1);
+    
+    let state = state.read().await;
+    let total_lines = state.dataset.line_count();
+    
+    // Clamp to valid range
+    let line_index = line_index.min(total_lines.saturating_sub(1));
+    
+    // Send command to TUI
+    if let Some(ref tx) = state.tui_tx {
+        let _ = tx.send(TuiCommand::JumpToLine(line_index));
+    }
+    
+    let text = format!(
+        "Navigated to line {} of {} in the TUI. You can now browse the dataset interactively.",
+        line_index + 1,
+        total_lines
+    );
+    
+    let content = vec![ContentBlock {
+        content_type: "text".into(),
+        text,
+    }];
+    
+    JsonRpcResponse::success(
+        id,
+        serde_json::json!({ "content": serde_json::to_value(&content).expect("ContentBlock is serializable") }),
+    )
+}
+
+/// `toggle_view` — cycle TUI view mode
+async fn tool_toggle_view(
+    id: Option<serde_json::Value>,
+    state: &SharedMcpState,
+) -> JsonRpcResponse {
+    let state = state.read().await;
+    
+    // Send command to TUI
+    if let Some(ref tx) = state.tui_tx {
+        let _ = tx.send(TuiCommand::ToggleView);
+    }
+    
+    let text = "Toggled TUI view mode (Text → Token X-Ray → Tree → Text). \
+                Look at the Caret TUI to see the new view.";
+    
+    let content = vec![ContentBlock {
+        content_type: "text".into(),
+        text: text.into(),
+    }];
+    
+    JsonRpcResponse::success(
+        id,
+        serde_json::json!({ "content": serde_json::to_value(&content).expect("ContentBlock is serializable") }),
+    )
+}
+
+/// `show_detail` — expand/collapse detail panel
+async fn tool_show_detail(
+    id: Option<serde_json::Value>,
+    args: serde_json::Value,
+    state: &SharedMcpState,
+) -> JsonRpcResponse {
+    let show = args
+        .get("show")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    
+    let state = state.read().await;
+    
+    // Send command to TUI
+    if let Some(ref tx) = state.tui_tx {
+        let _ = tx.send(TuiCommand::ShowDetail(show));
+    }
+    
+    let text = if show {
+        "Showing detail panel in TUI. Press Enter in the TUI to toggle."
+    } else {
+        "Hiding detail panel in TUI."
+    };
+    
+    let content = vec![ContentBlock {
+        content_type: "text".into(),
+        text: text.into(),
+    }];
+    
+    JsonRpcResponse::success(
+        id,
+        serde_json::json!({ "content": serde_json::to_value(&content).expect("ContentBlock is serializable") }),
     )
 }
 

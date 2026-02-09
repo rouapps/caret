@@ -14,7 +14,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use caret::app::App;
+use caret::app::{App, ViewMode};
+use caret::commands::{command_channel, TuiCommand, TuiCommandReceiver, ViewModeCmd};
 use caret::data::Dataset;
 use caret::engine::{DedupEngine, DedupStrategy};
 use caret::fixer::{FixResult, Fixer, FixSummary};
@@ -269,6 +270,9 @@ fn main() -> Result<()> {
         0
     };
 
+    // Initialize TUI (needed for both MCP and non-MCP paths)
+    let tui = Tui::new()?;
+
     if mcp_port > 0 || args.mcp_only {
         // Snapshot the dataset into an Arc for the async MCP server.
         // One-time copy cost — the server then holds a read-only reference.
@@ -299,27 +303,47 @@ fn main() -> Result<()> {
         let dataset_path = app.dataset.path.clone();
         let port = if mcp_port > 0 { mcp_port } else { 3100 };
 
+        // Create command channel for MCP → TUI communication
+        let (tui_tx, tui_rx) = command_channel();
+
         if args.mcp_only {
-            // Headless MCP-only mode — block on the server
+            // Headless MCP-only mode — block on the server (no TUI commands)
             eprintln!("Starting MCP server (headless) on port {}...", port);
-            rt.block_on(mcp::start_mcp_server(dataset_arc, dataset_path, port))?;
+            rt.block_on(mcp::start_mcp_server(dataset_arc, dataset_path, port, None))?;
             return Ok(());
         } else {
             // Background MCP server alongside the TUI
             eprintln!("Starting MCP server on port {}...", port);
-            rt.spawn(mcp::start_mcp_server(dataset_arc, dataset_path, port));
+            rt.spawn(mcp::start_mcp_server(dataset_arc, dataset_path, port, Some(tui_tx)));
+            
+            // Store receiver for the TUI loop
+            return run_tui_with_mcp(tui, app, tui_rx);
         }
     }
 
-    // Initialize TUI
-    let mut tui = Tui::new()?;
+    // No MCP server — run TUI without command channel
+    run_tui_loop(tui, app, None)
+}
 
-    // Main event loop
+/// Run TUI with MCP command channel
+fn run_tui_with_mcp(mut tui: Tui, mut app: App, tui_rx: TuiCommandReceiver) -> Result<()> {
+    run_tui_loop(tui, app, Some(tui_rx))
+}
+
+/// Main TUI event loop with optional MCP command channel
+fn run_tui_loop(mut tui: Tui, mut app: App, mut tui_rx: Option<TuiCommandReceiver>) -> Result<()> {
     loop {
+        // Poll MCP command channel (non-blocking)
+        if let Some(ref mut rx) = tui_rx {
+            while let Ok(cmd) = rx.try_recv() {
+                apply_tui_command(&mut app, cmd);
+            }
+        }
+
         // Render
         tui.terminal().draw(|frame| ui::render(frame, &mut app))?;
 
-        // Handle events
+        // Handle keyboard events
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
@@ -360,7 +384,7 @@ fn main() -> Result<()> {
 
                     // Toggle Token X-Ray mode
                     (KeyCode::Tab, _) => {
-                        app.view_mode.toggle();
+                        app.toggle_view_mode();
                     }
 
                     // Toggle detail panel
@@ -397,6 +421,42 @@ fn main() -> Result<()> {
     eprintln!("Goodbye!");
 
     Ok(())
+}
+
+/// Apply a TUI command from MCP to the app state
+fn apply_tui_command(app: &mut App, cmd: TuiCommand) {
+    match cmd {
+        TuiCommand::JumpToLine(line) => {
+            // Jump to line and center it
+            app.selected_line = line.min(app.dataset.line_count().saturating_sub(1));
+            app.scroll = app.selected_line.saturating_sub(app.viewport_height / 2);
+        }
+        TuiCommand::ToggleView => {
+            app.toggle_view_mode();
+        }
+        TuiCommand::SetViewMode(mode) => {
+            app.view_mode = match mode {
+                ViewModeCmd::Text => ViewMode::Text,
+                ViewModeCmd::TokenXray => ViewMode::TokenXray,
+                ViewModeCmd::Tree => ViewMode::Tree,
+            };
+        }
+        TuiCommand::ShowDetail(show) => {
+            app.show_detail = show;
+        }
+        TuiCommand::ScrollDown(n) => {
+            app.scroll_down(n);
+        }
+        TuiCommand::ScrollUp(n) => {
+            app.scroll_up(n);
+        }
+        TuiCommand::GotoTop => {
+            app.goto_top();
+        }
+        TuiCommand::GotoBottom => {
+            app.goto_bottom();
+        }
+    }
 }
 
 /// Run dedup mode (headless, no TUI)
