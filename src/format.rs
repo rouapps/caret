@@ -33,7 +33,7 @@ impl InputFormat {
     }
 
     /// Parse format from string (for CLI)
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "jsonl" | "json" | "ndjson" => Some(InputFormat::Jsonl),
             "parquet" | "pq" => Some(InputFormat::Parquet),
@@ -149,11 +149,11 @@ mod tests {
     }
 
     #[test]
-    fn test_from_str() {
-        assert_eq!(InputFormat::from_str("jsonl"), Some(InputFormat::Jsonl));
-        assert_eq!(InputFormat::from_str("PARQUET"), Some(InputFormat::Parquet));
-        assert_eq!(InputFormat::from_str("csv"), Some(InputFormat::Csv));
-        assert_eq!(InputFormat::from_str("auto"), None);
-        assert_eq!(InputFormat::from_str("unknown"), None);
+    fn test_parse() {
+        assert_eq!(InputFormat::parse("jsonl"), Some(InputFormat::Jsonl));
+        assert_eq!(InputFormat::parse("PARQUET"), Some(InputFormat::Parquet));
+        assert_eq!(InputFormat::parse("csv"), Some(InputFormat::Csv));
+        assert_eq!(InputFormat::parse("auto"), None);
+        assert_eq!(InputFormat::parse("unknown"), None);
     }
 }

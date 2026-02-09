@@ -73,8 +73,8 @@ impl Linter {
     /// Create a new linter with default settings
     pub fn new() -> Self {
         Self {
-            think_open_regex: Regex::new(r"<think>").unwrap(),
-            think_close_regex: Regex::new(r"</think>").unwrap(),
+            think_open_regex: Regex::new(r"<think>").expect("valid regex: <think>"),
+            think_close_regex: Regex::new(r"</think>").expect("valid regex: </think>"),
             required_keys: vec![],
         }
     }

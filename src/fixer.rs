@@ -78,9 +78,9 @@ impl Fixer {
     /// Create a new fixer
     pub fn new() -> Self {
         Self {
-            think_open_regex: Regex::new(r"<think>").unwrap(),
-            think_close_regex: Regex::new(r"</think>").unwrap(),
-            whitespace_before_newline: Regex::new(r" +\n").unwrap(),
+            think_open_regex: Regex::new(r"<think>").expect("valid regex: <think>"),
+            think_close_regex: Regex::new(r"</think>").expect("valid regex: </think>"),
+            whitespace_before_newline: Regex::new(r" +\n").expect("valid regex: whitespace before newline"),
         }
     }
 
@@ -105,7 +105,7 @@ impl Fixer {
         self.fix_value(&mut json_value, &mut fixes);
 
         // Serialize back to JSON
-        let fixed_line = serde_json::to_string(&json_value).unwrap();
+        let fixed_line = serde_json::to_string(&json_value).expect("parsed JSON should be re-serializable");
 
         if fixes.is_empty() {
             FixResult::Unchanged(fixed_line)
@@ -183,41 +183,45 @@ impl Fixer {
         let open_count = self.think_open_regex.find_iter(s).count();
         let close_count = self.think_close_regex.find_iter(s).count();
 
-        if open_count > close_count {
-            // Missing closing tags - find where each <think> ends and add </think> if missing
-            // Simple approach: add missing </think> tags at the end of each unclosed section
-            for _ in 0..(open_count - close_count) {
-                // Find the last <think> that doesn't have a matching </think>
-                // For simplicity, append </think> right after the last unclosed <think>'s content
-                // A smarter approach would find where the thinking ends, but we'll use a heuristic:
-                // Insert </think> before the final answer (after all thinking is done)
-                
-                if let Some(last_open_pos) = s.rfind("<think>") {
-                    // Check if there's a </think> after this position
-                    let after_open = &s[last_open_pos..];
-                    if !after_open.contains("</think>") {
-                        // No closing tag after this opening - add one
-                        // Try to find a natural break point (end of thinking)
-                        // If the content has a clear answer section, insert before it
-                        // Otherwise, look for patterns like double newlines
-                        let close_pos = find_think_close_position(&s[last_open_pos + 7..]);
-                        let insert_pos = last_open_pos + 7 + close_pos;
-                        s.insert_str(insert_pos, "</think>");
-                        if !fixes.contains(&FixType::AddedClosingThinkTag) {
-                            fixes.push(FixType::AddedClosingThinkTag);
+        match open_count.cmp(&close_count) {
+            std::cmp::Ordering::Greater => {
+                // Missing closing tags - find where each <think> ends and add </think> if missing
+                // Simple approach: add missing </think> tags at the end of each unclosed section
+                for _ in 0..(open_count - close_count) {
+                    // Find the last <think> that doesn't have a matching </think>
+                    // For simplicity, append </think> right after the last unclosed <think>'s content
+                    // A smarter approach would find where the thinking ends, but we'll use a heuristic:
+                    // Insert </think> before the final answer (after all thinking is done)
+                    
+                    if let Some(last_open_pos) = s.rfind("<think>") {
+                        // Check if there's a </think> after this position
+                        let after_open = &s[last_open_pos..];
+                        if !after_open.contains("</think>") {
+                            // No closing tag after this opening - add one
+                            // Try to find a natural break point (end of thinking)
+                            // If the content has a clear answer section, insert before it
+                            // Otherwise, look for patterns like double newlines
+                            let close_pos = find_think_close_position(&s[last_open_pos + 7..]);
+                            let insert_pos = last_open_pos + 7 + close_pos;
+                            s.insert_str(insert_pos, "</think>");
+                            if !fixes.contains(&FixType::AddedClosingThinkTag) {
+                                fixes.push(FixType::AddedClosingThinkTag);
+                            }
                         }
                     }
                 }
             }
-        } else if close_count > open_count {
-            // Missing opening tags - prepend <think> for each unmatched </think>
-            for _ in 0..(close_count - open_count) {
-                // Prepend <think> at the beginning
-                *s = format!("<think>{}", s);
-                if !fixes.contains(&FixType::AddedOpeningThinkTag) {
-                    fixes.push(FixType::AddedOpeningThinkTag);
+            std::cmp::Ordering::Less => {
+                // Missing opening tags - prepend <think> for each unmatched </think>
+                for _ in 0..(close_count - open_count) {
+                    // Prepend <think> at the beginning
+                    *s = format!("<think>{}", s);
+                    if !fixes.contains(&FixType::AddedOpeningThinkTag) {
+                        fixes.push(FixType::AddedOpeningThinkTag);
+                    }
                 }
             }
+            std::cmp::Ordering::Equal => {}
         }
     }
 }

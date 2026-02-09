@@ -149,7 +149,7 @@ fn main() -> Result<()> {
         let input_format = if args.format == "auto" {
             InputFormat::detect(&args.file)
         } else {
-            InputFormat::from_str(&args.format).unwrap_or_else(|| {
+            InputFormat::parse(&args.format).unwrap_or_else(|| {
                 eprintln!("Warning: Unknown format '{}', using auto-detect", args.format);
                 InputFormat::detect(&args.file)
             })
@@ -189,12 +189,12 @@ fn main() -> Result<()> {
         }
     } else if args.tokenizer {
         // Determine tokenizer type from CLI
-        let tokenizer_type = TokenizerType::from_str(&args.tokenizer_type)
+        let tokenizer_type = TokenizerType::parse(&args.tokenizer_type)
             .unwrap_or(TokenizerType::Tiktoken);
 
         match tokenizer_type {
             TokenizerType::Tiktoken => {
-                let encoding = TiktokenEncoding::from_str(&args.tiktoken_encoding)
+                let encoding = TiktokenEncoding::parse(&args.tiktoken_encoding)
                     .unwrap_or(TiktokenEncoding::Cl100kBase);
                 eprintln!("Loading Tiktoken tokenizer ({:?})...", encoding);
                 match TokenizerWrapper::from_tiktoken(encoding) {

@@ -256,7 +256,7 @@ fn handle_initialize(id: Option<serde_json::Value>) -> JsonRpcResponse {
         },
     };
 
-    JsonRpcResponse::success(id, serde_json::to_value(result).unwrap())
+    JsonRpcResponse::success(id, serde_json::to_value(result).expect("InitializeResult is serializable"))
 }
 
 fn handle_tools_list(id: Option<serde_json::Value>) -> JsonRpcResponse {
@@ -345,7 +345,7 @@ fn handle_tools_list(id: Option<serde_json::Value>) -> JsonRpcResponse {
 
     JsonRpcResponse::success(
         id,
-        serde_json::json!({ "tools": serde_json::to_value(&tools).unwrap() }),
+        serde_json::json!({ "tools": serde_json::to_value(&tools).expect("ToolDescriptor is serializable") }),
     )
 }
 
@@ -445,7 +445,7 @@ async fn tool_search_dataset(
 
             JsonRpcResponse::success(
                 id,
-                serde_json::json!({ "content": serde_json::to_value(&content).unwrap() }),
+                serde_json::json!({ "content": serde_json::to_value(&content).expect("ContentBlock is serializable") }),
             )
         }
         Ok(Err(e)) => JsonRpcResponse::error(id, -32603, format!("Search error: {}", e)),
@@ -526,7 +526,7 @@ async fn tool_dataset_info(
     JsonRpcResponse::success(
         id,
         serde_json::json!({
-            "content": serde_json::to_value(&content).unwrap(),
+            "content": serde_json::to_value(&content).expect("ContentBlock is serializable"),
             "metadata": info,
         }),
     )
@@ -577,7 +577,7 @@ async fn tool_get_lines(
 
     JsonRpcResponse::success(
         id,
-        serde_json::json!({ "content": serde_json::to_value(&content).unwrap() }),
+        serde_json::json!({ "content": serde_json::to_value(&content).expect("ContentBlock is serializable") }),
     )
 }
 
@@ -651,7 +651,7 @@ async fn tool_dedup_scan(
             JsonRpcResponse::success(
                 id,
                 serde_json::json!({
-                    "content": serde_json::to_value(&content).unwrap(),
+                    "content": serde_json::to_value(&content).expect("ContentBlock is serializable"),
                     "metadata": {
                         "total_lines": dr.total_lines,
                         "unique_count": dr.unique_count,
@@ -688,7 +688,7 @@ async fn handle_resources_list(
 
     JsonRpcResponse::success(
         id,
-        serde_json::json!({ "resources": serde_json::to_value(&resources).unwrap() }),
+        serde_json::json!({ "resources": serde_json::to_value(&resources).expect("ResourceDescriptor is serializable") }),
     )
 }
 

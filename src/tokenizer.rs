@@ -38,7 +38,7 @@ pub enum TokenizerType {
 
 impl TokenizerType {
     /// Parse from CLI string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "tiktoken" | "tk" | "openai" => Some(TokenizerType::Tiktoken),
             "huggingface" | "hf" | "llama" => Some(TokenizerType::HuggingFace),
@@ -62,7 +62,7 @@ pub enum TiktokenEncoding {
 
 impl TiktokenEncoding {
     /// Parse from CLI string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "cl100k_base" | "cl100k" | "gpt4" => Some(TiktokenEncoding::Cl100kBase),
             "p50k_base" | "p50k" | "codex" => Some(TiktokenEncoding::P50kBase),
@@ -76,8 +76,8 @@ impl TiktokenEncoding {
 enum TokenizerBackend {
     /// Tiktoken BPE tokenizer
     Tiktoken(tiktoken_rs::CoreBPE),
-    /// HuggingFace tokenizer
-    HuggingFace(tokenizers::Tokenizer),
+    /// HuggingFace tokenizer (boxed to reduce enum size)
+    HuggingFace(Box<tokenizers::Tokenizer>),
 }
 
 /// Wrapper around tokenizers with LRU cache for performance
@@ -123,7 +123,7 @@ impl TokenizerWrapper {
             .to_string();
 
         Ok(Self {
-            backend: TokenizerBackend::HuggingFace(tokenizer),
+            backend: TokenizerBackend::HuggingFace(Box::new(tokenizer)),
             name,
             cache: RefCell::new(LruCache::new(NonZeroUsize::new(CACHE_SIZE).unwrap())),
         })
@@ -135,7 +135,7 @@ impl TokenizerWrapper {
             .map_err(|e| anyhow::anyhow!("Failed to load tokenizer from Hub: {}", e))?;
 
         Ok(Self {
-            backend: TokenizerBackend::HuggingFace(tokenizer),
+            backend: TokenizerBackend::HuggingFace(Box::new(tokenizer)),
             name: model_id.to_string(),
             cache: RefCell::new(LruCache::new(NonZeroUsize::new(CACHE_SIZE).unwrap())),
         })
@@ -253,9 +253,6 @@ impl TokenizerWrapper {
         match &self.backend {
             TokenizerBackend::Tiktoken(bpe) => {
                 bpe.encode_with_special_tokens(text)
-                    .into_iter()
-                    .map(|id| id as u32)
-                    .collect()
             }
             TokenizerBackend::HuggingFace(tokenizer) => {
                 tokenizer
@@ -281,16 +278,16 @@ mod tests {
 
     #[test]
     fn test_tokenizer_type_parsing() {
-        assert_eq!(TokenizerType::from_str("tiktoken"), Some(TokenizerType::Tiktoken));
-        assert_eq!(TokenizerType::from_str("huggingface"), Some(TokenizerType::HuggingFace));
-        assert_eq!(TokenizerType::from_str("gpt2"), Some(TokenizerType::Gpt2));
-        assert_eq!(TokenizerType::from_str("unknown"), None);
+        assert_eq!(TokenizerType::parse("tiktoken"), Some(TokenizerType::Tiktoken));
+        assert_eq!(TokenizerType::parse("huggingface"), Some(TokenizerType::HuggingFace));
+        assert_eq!(TokenizerType::parse("gpt2"), Some(TokenizerType::Gpt2));
+        assert_eq!(TokenizerType::parse("unknown"), None);
     }
 
     #[test]
     fn test_encoding_parsing() {
-        assert_eq!(TiktokenEncoding::from_str("cl100k_base"), Some(TiktokenEncoding::Cl100kBase));
-        assert_eq!(TiktokenEncoding::from_str("p50k_base"), Some(TiktokenEncoding::P50kBase));
-        assert_eq!(TiktokenEncoding::from_str("r50k_base"), Some(TiktokenEncoding::R50kBase));
+        assert_eq!(TiktokenEncoding::parse("cl100k_base"), Some(TiktokenEncoding::Cl100kBase));
+        assert_eq!(TiktokenEncoding::parse("p50k_base"), Some(TiktokenEncoding::P50kBase));
+        assert_eq!(TiktokenEncoding::parse("r50k_base"), Some(TiktokenEncoding::R50kBase));
     }
 }

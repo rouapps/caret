@@ -44,7 +44,7 @@ pub struct BitMask {
 impl BitMask {
     /// Create a new bitmask with all bits cleared.
     pub fn new(len: usize) -> Self {
-        let word_count = (len + 63) / 64;
+        let word_count = len.div_ceil(64);
         Self {
             words: vec![0u64; word_count],
             len,
@@ -155,11 +155,11 @@ impl SimHasher {
         for window in data.windows(self.shingle_size) {
             let hash = self.fnv1a(window);
             // The compiler auto-vectorizes this loop at opt-level 3
-            for i in 0..64 {
+            for (i, acc_val) in acc.iter_mut().enumerate() {
                 if hash & (1u64 << i) != 0 {
-                    acc[i] += 1;
+                    *acc_val += 1;
                 } else {
-                    acc[i] -= 1;
+                    *acc_val -= 1;
                 }
             }
         }
